@@ -45,6 +45,5 @@ Route::middleware('auth')->group(function () {
 });
 
 // 4. LOAD ROUTE FILES
-require __DIR__ . '/api.php';
 includeRouteFiles(__DIR__ . '/user');
 includeRouteFiles(__DIR__ . '/admin');
