@@ -1,0 +1,13 @@
+Dữ liệu đã tới Controller lúc: 21:43:55
+Dữ liệu đã tới Controller lúc: 21:44:52
+Dữ liệu đã tới Controller lúc: 21:45:59
+Dữ liệu đã tới Controller lúc: 21:47:44
+Dữ liệu đã tới Controller lúc: 21:48:00
+Dữ liệu đã tới Controller lúc: 21:48:09
+Dữ liệu đã tới Controller lúc: 21:48:10
+Dữ liệu đã tới Controller lúc: 16:22:45
+Dữ liệu đã tới Controller lúc: 00:19:25
+Dữ liệu đã tới Controller lúc: 00:19:31
+Dữ liệu đã tới Controller lúc: 00:22:44
+Dữ liệu đã tới Controller lúc: 00:22:50
+Dữ liệu đã tới Controller lúc: 00:24:15

@@ -1,0 +1,475 @@
+{{-- resources/views/layouts/chatbot.blade.php --}}
+
+{{-- FAB Button --}}
+<button
+    @click="chatOpen = !chatOpen; $nextTick(() => lucide.createIcons())"
+    :class="chatOpen ? 'scale-0 opacity-0 pointer-events-none' : 'scale-100 opacity-100'"
+    class="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-2xl bg-slate-900 text-white shadow-2xl
+           flex items-center justify-center transition-all duration-300 hover:scale-110 hover:bg-slate-700 group"
+    title="Mở trợ lý AI">
+    <i data-lucide="bot" class="w-6 h-6 group-hover:rotate-12 transition-transform duration-200"></i>
+</button>
+
+{{-- Chat Panel --}}
+<div
+    x-show="chatOpen"
+    x-cloak
+    x-init="$watch('$el.style.display', v => { if (v !== 'none') $nextTick(() => lucide.createIcons()) })"
+    x-transition:enter="transition-transform duration-300 ease-out"
+    x-transition:enter-start="translate-x-full"
+    x-transition:enter-end="translate-x-0"
+    x-transition:leave="transition-transform duration-200 ease-in"
+    x-transition:leave-start="translate-x-0"
+    x-transition:leave-end="translate-x-full"
+    class="fixed inset-y-0 right-0 z-40 flex w-full max-w-[420px] flex-col border-l border-slate-200 bg-white shadow-2xl">
+
+    <div class="flex flex-col h-full bg-white" x-data="chatbot()">
+
+        {{-- Header --}}
+        <div class="flex items-center gap-3 px-5 py-4 bg-slate-900 shrink-0">
+            <div class="w-9 h-9 rounded-xl bg-yellow-400 flex items-center justify-center shrink-0">
+                <i data-lucide="bot" class="w-5 h-5 text-slate-900"></i>
+            </div>
+            <div class="flex-1 min-w-0">
+                <p class="font-bold text-white text-sm leading-tight">Trợ lý EduNova AI</p>
+                <div class="flex items-center gap-1.5 mt-0.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span class="text-xs text-slate-400">Sẵn sàng hỗ trợ</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-1">
+                <button @click="clearChat()"
+                    class="p-2 rounded-lg hover:bg-white/10 transition-colors text-white"
+                    title="Xóa hội thoại">
+                    <i data-lucide="trash-2" class="w-5 h-5"></i>
+                </button>
+                <button @click="$dispatch('close-chat')"
+                    class="p-2 rounded-lg hover:bg-white/10 transition-colors text-white"
+                    title="Đóng">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </div>
+
+        {{-- Messages --}}
+        <div id="chatMessages"
+            class="flex-1 overflow-y-auto px-4 py-4 space-y-4 bg-slate-50">
+
+            {{-- Chào mừng --}}
+            <div class="flex gap-3 items-end">
+                <div class="w-7 h-7 rounded-xl bg-yellow-400 flex items-center justify-center shrink-0 mb-1">
+                    <i data-lucide="bot" class="w-4 h-4 text-slate-900"></i>
+                </div>
+                <div class="max-w-[78%]">
+                    <div class="bg-white border border-slate-200 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
+                        <p class="text-sm text-slate-700 leading-relaxed">
+                            Xin chào! Tôi là trợ lý AI của EduNova. Hỏi tôi bất cứ điều gì về học tập nhé! 🎓<br>
+                            <span style="font-size:0.75rem;color:#94a3b8;">💡 Mẹo: Kéo thả các chủ đề từ lộ trình học vào đây!</span>
+                        </p>
+                    </div>
+                    <p class="text-[10px] text-slate-400 mt-1 ml-1">EduNova AI</p>
+                </div>
+            </div>
+
+            {{-- Hint chips --}}
+            <div class="flex flex-wrap gap-2 pl-10">
+                <template x-for="hint in hints" :key="hint">
+                    <button @click="sendHint(hint)"
+                        class="px-3 py-1.5 bg-white border border-slate-200 rounded-full text-xs text-slate-600
+                               hover:border-slate-900 hover:text-slate-900 transition-all"
+                        x-text="hint">
+                    </button>
+                </template>
+            </div>
+
+            {{-- Tin nhắn --}}
+            <template x-for="(msg, i) in messages" :key="i">
+                <div>
+                    <div x-show="msg.role === 'assistant'" class="flex gap-3 items-end">
+                        <div class="w-7 h-7 rounded-xl bg-yellow-400 flex items-center justify-center shrink-0 mb-1">
+                            <i data-lucide="bot" class="w-4 h-4 text-slate-900"></i>
+                        </div>
+                        <div class="max-w-[78%]">
+                            <div class="bg-white border border-slate-200 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
+                                <p class="text-sm text-slate-700 leading-relaxed" x-html="formatMsg(msg.content)"></p>
+                            </div>
+                            <p class="text-[10px] text-slate-400 mt-1 ml-1">EduNova AI</p>
+                        </div>
+                    </div>
+                    <div x-show="msg.role === 'user'" class="flex gap-3 items-end justify-end">
+                        <div class="max-w-[78%]">
+                            <div class="bg-slate-900 rounded-2xl rounded-br-md px-4 py-3">
+                                <p class="text-sm text-white leading-relaxed" x-text="msg.content"></p>
+                            </div>
+                            <p class="text-[10px] text-slate-400 mt-1 text-right mr-1">Bạn</p>
+                        </div>
+                        <div class="w-7 h-7 rounded-xl bg-slate-200 flex items-center justify-center shrink-0 mb-1">
+                            <i data-lucide="user" class="w-4 h-4 text-slate-600"></i>
+                        </div>
+                    </div>
+                </div>
+            </template>
+
+            {{-- Typing --}}
+            <div x-show="loading" class="flex gap-3 items-end">
+                <div class="w-7 h-7 rounded-xl bg-yellow-400 flex items-center justify-center shrink-0 mb-1">
+                    <i data-lucide="bot" class="w-4 h-4 text-slate-900"></i>
+                </div>
+                <div class="bg-white border border-slate-200 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
+                    <div class="flex gap-1 items-center h-4">
+                        <span class="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style="animation-delay:0ms"></span>
+                        <span class="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style="animation-delay:150ms"></span>
+                        <span class="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style="animation-delay:300ms"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {{-- Drop Zone Indicator --}}
+        <div id="dropZoneIndicator"
+            class="hidden absolute inset-0 z-50 flex items-center justify-center rounded-2xl border-2 border-dashed border-indigo-500 bg-indigo-100/70 pointer-events-none">
+            <div class="text-center px-4 py-3">
+                <p class="text-sm font-semibold text-indigo-700">📌 Thả nội dung tại đây</p>
+            </div>
+        </div>
+
+
+                {{-- Tag selector --}}
+        <div class="px-4 pt-3 pb-0 border-t border-slate-200 bg-slate-50 shrink-0">
+            <div class="flex items-center gap-2">
+                <div class="flex gap-1.5 flex-wrap">
+                    <template x-for="tag in availableTags" :key="tag.key">
+                        <button
+                            @click="selectedTag = (selectedTag?.key === tag.key) ? null : tag"
+                            class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all"
+                            :class="selectedTag?.key === tag.key
+                                ? 'bg-slate-900 text-white border-slate-900'
+                                : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400 hover:text-slate-900'">
+                            <i :data-lucide="tag.icon" class="w-3 h-3"></i>
+                            <span x-text="tag.label"></span>
+                        </button>
+                    </template>
+                </div>
+            </div>
+        </div>
+        {{-- Input --}}
+        <div id="inputContainer"
+            class="px-4 pb-4 pt-3 bg-slate-50 shrink-0"
+            @dragover.prevent="showDropZone = true"
+            @dragleave.prevent="showDropZone = false"
+            @drop.prevent="handleDrop($event); showDropZone = false"
+            x-data="{ showDropZone: false }">
+
+            {{-- Selected tag pill bên trong input wrapper --}}
+            <div x-show="selectedTag"
+                class="flex items-center gap-1.5 mb-2">
+                <div class="flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 text-white rounded-full text-[11px] font-bold">
+                    <i :data-lucide="selectedTag?.icon" class="w-3 h-3"></i>
+                    <span x-text="selectedTag?.label"></span>
+                    <button @click="selectedTag = null"
+                        class="ml-0.5 hover:text-slate-300 transition-colors">
+                        <i data-lucide="x" class="w-3 h-3"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex gap-2 items-end">
+                <textarea
+                    x-model="input"
+                    @keydown.enter="if ($event.shiftKey) return; $event.preventDefault(); send();"
+                    :disabled="loading"
+                    :placeholder="selectedTag ? `Mô tả để ${selectedTag.label.toLowerCase()}...` : 'Nhập câu hỏi... (Enter để gửi)'"
+                    rows="1"
+                    class="flex-1 px-4 py-3 border border-slate-200 rounded-xl text-sm text-slate-800
+                        focus:outline-none focus:ring-2 focus:ring-slate-900 resize-none
+                        disabled:opacity-50 transition-all"
+                    style="max-height:120px;"
+                    @input="autoResize($event.target)">
+                </textarea>
+                <button @click="send()"
+                    :disabled="loading || !input.trim()"
+                    class="w-11 h-11 rounded-xl bg-slate-900 text-white flex items-center justify-center
+                        hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed
+                        transition-all active:scale-95 shrink-0">
+                    <i data-lucide="send" class="w-4 h-4"></i>
+                </button>
+            </div>
+            <p class="text-[10px] text-slate-400 mt-2 text-center">Shift+Enter xuống dòng · Kéo thả chủ đề từ lộ trình</p>
+        </div>
+
+            </div>
+        </div>
+
+{{-- Script chatbot — chỉ load 1 lần nhờ @once --}}
+@once
+@push('scripts')
+<script>
+    document.addEventListener('close-chat', () => {
+        const wrapper = document.querySelector('[x-data]');
+        if (wrapper && wrapper._x_dataStack) {
+            wrapper._x_dataStack[0].chatOpen = false;
+            setTimeout(() => lucide.createIcons(), 50);
+        }
+    });
+
+    document.addEventListener('alpine:initialized', () => lucide.createIcons());
+
+    function chatbot() {
+        return {
+            input: '',
+            loading: false,
+            messages: [],
+            hints: ['Tạo lộ trình học Python', 'Giải thích Flexbox CSS', 'Mẹo học TOEIC'],
+            selectedTag: null,
+            availableTags: [
+                { key: 'create_exam',     label: 'Tạo bài thi',       icon: 'file-text' },
+                { key: 'create_schedule', label: 'Tạo lịch cá nhân',  icon: 'calendar'  },
+                { key: 'create_flashcard',label: 'Tạo flash card',     icon: 'layers'    },
+            ],
+
+            init() {
+                this.$nextTick(() => {
+                    lucide.createIcons();
+                    this.$watch('selectedTag', () => this.$nextTick(() => lucide.createIcons()));
+                    // Load chat history from server (only active messages)
+                    fetch('/api/chatbot/history', { credentials: 'same-origin' })
+                        .then(r => r.json())
+                        .then(data => {
+                            if (data && data.success && Array.isArray(data.messages)) {
+                                // messages from API already use role 'assistant' or 'user'
+                                this.messages = data.messages.map(m => ({ role: m.role, content: m.content }));
+                                this.$nextTick(() => { this.scrollBottom(); lucide.createIcons(); });
+                            }
+                        }).catch(err => {
+                            console.warn('Không thể tải lịch sử chat:', err);
+                        });
+
+                    // Gắn sự kiện drag trên panel để hiển thị drop indicator và cho phép thả cả section lớn
+                    const panel = this.$el;
+                    const dropIndicator = document.getElementById('dropZoneIndicator');
+                    if (panel) {
+                        panel.addEventListener('dragenter', (ev) => { ev.preventDefault(); if (dropIndicator) dropIndicator.style.display = 'flex'; });
+                        panel.addEventListener('dragover', (ev) => { ev.preventDefault(); if (dropIndicator) dropIndicator.style.display = 'flex'; });
+                        panel.addEventListener('dragleave', (ev) => { if (dropIndicator) dropIndicator.style.display = 'none'; });
+                        panel.addEventListener('drop', (ev) => { ev.preventDefault(); if (dropIndicator) dropIndicator.style.display = 'none'; this.handleDrop(ev); });
+                    }
+                });
+            },
+
+            async clearChat() {
+                if (!this.messages.length) return;
+                if (!confirm('Xóa toàn bộ hội thoại?')) return;
+
+                try {
+                    const resp = await fetch('/api/chatbot/clear', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        },
+                        body: JSON.stringify({}),
+                    });
+
+                    if (!resp.ok) throw new Error('Lỗi server');
+                    const data = await resp.json();
+                    if (data && data.success) {
+                        this.messages = [];
+                        this.$nextTick(() => lucide.createIcons());
+                    } else {
+                        throw new Error(data?.message || 'Không thể xóa');
+                    }
+                } catch (err) {
+                    showToast('Xóa lịch sử thất bại: ' + (err.message || err), 'error');
+                }
+            },
+
+            sendHint(hint) { this.input = hint; this.send(); },
+
+            handleDrop(e) {
+                try {
+                    const data = e.dataTransfer.getData('application/json');
+                    if (data) {
+                        const cardData = JSON.parse(data);
+                        const message = this.formatDroppedContent(cardData);
+                        this.input = message;
+                        this.$nextTick(() => {
+                            const ta = this.$el.querySelector('textarea');
+                            if (ta) this.autoResize(ta);
+                        });
+                    }
+                } catch (err) {
+                    console.error('Lỗi drop:', err);
+                }
+            },
+
+            formatDroppedContent(cardData) {
+                // Level 1: Entire Roadmap (Toàn bộ)
+                if (cardData && cardData.level === 1 && Array.isArray(cardData.sections)) {
+                    let message = `📚 LỘ TRÌNH HỌC: ${cardData.title}\n`;
+                    message += `${cardData.description || ''}\n\n`;
+                    message += `CÁC CHỦ ĐỀ CHÍNH:\n`;
+                    cardData.sections.forEach((sec, i) => {
+                        message += `${i + 1}. ${sec.title}\n`;
+                        if (sec.description) message += `   ${sec.description}\n`;
+                        if (Array.isArray(sec.items) && sec.items.length) {
+                            const sample = sec.items.slice(0, 3).map(it => it.title).join(', ');
+                            message += `   Ví dụ: ${sample}${sec.items.length > 3 ? ', ...' : ''}\n`;
+                        }
+                    });
+                    message += `\n📋 Yêu cầu: Tóm tắt lộ trình này thành kế hoạch học tập 4-6 tuần, chia rõ từng tuần và mục tiêu cụ thể.`;
+                    return message.trim();
+                }
+
+                // Level 2: Section with Items (Các mục lớn)
+                if (cardData && cardData.level === 2 && Array.isArray(cardData.items)) {
+                    let message = `📌 CHỦĐỀ: ${cardData.title}\n`;
+                    if (cardData.description) message += `${cardData.description}\n`;
+                    message += `\nCÁC MỤC CON:\n`;
+                    cardData.items.forEach((it, i) => {
+                        message += `${i + 1}. ${it.title}`;
+                        if (it.content) message += ` — ${it.content.replace(/\n/g, ' ').slice(0, 150)}`;
+                        message += `\n`;
+                    });
+                    message += `\n📋 Yêu cầu: Tóm tắt các mục trên hoặc tạo hướng dẫn chi tiết để học.`;
+                    return message.trim();
+                }
+
+                // Level 3: Single Item (Nội dung con)
+                if (cardData && cardData.level === 3) {
+                    let message = `📝 NỘI DUNG: ${cardData.title}\n`;
+                    if (cardData.section) message += `Chủ đề: ${cardData.section}\n`;
+                    if (cardData.subsection) message += `Phân nhánh: ${cardData.subsection}\n`;
+                    message += `\n`;
+                    if (cardData.content) message += `${cardData.content}\n`;
+                    if (cardData.formula) message += `\n🔢 CÔNG THỨC:\n${cardData.formula}\n`;
+                    if (cardData.example) message += `\n💡 VÍ DỤ:\n${cardData.example}\n`;
+                    message += `\n📋 Yêu cầu: Giải thích, mở rộng hoặc cung cấp thêm ví dụ cho nội dung này.`;
+                    return message.trim();
+                }
+
+                // Legacy: Array with items (section from old format)
+                if (cardData && Array.isArray(cardData.items)) {
+                    let message = `📌 CHỦĐỀ: ${cardData.title}\n`;
+                    if (cardData.description) message += `${cardData.description}\n`;
+                    message += `\nCÁC MỤC CON:\n`;
+                    cardData.items.forEach((it, i) => {
+                        message += `${i + 1}. ${it.title}${it.content ? ' — ' + it.content.replace(/\n/g, ' ').slice(0, 150) : ''}\n`;
+                    });
+                    message += `\n📋 Yêu cầu: Tóm tắt hoặc tạo hướng dẫn.`;
+                    return message.trim();
+                }
+
+                // Fallback: Single card
+                let message = `📝 ${cardData.title || ''}\n`;
+                if (cardData.topic) message += `(Chủ đề: ${cardData.topic})\n`;
+                if (cardData.content) message += `\n${cardData.content}\n`;
+                if (cardData.formula) message += `\n🔢 Công thức: ${cardData.formula}\n`;
+                if (cardData.example) message += `\n💡 Ví dụ: ${cardData.example}\n`;
+                return message.trim();
+            },
+
+           // Thay toàn bộ hàm send() trong chatbot.blade.php
+
+            async send() {
+                const text = this.input.trim();
+                if (!text || this.loading) return;
+
+                // ── QUAN TRỌNG: Lưu tag trước khi reset state ──
+                const activeTag = this.selectedTag?.key ?? null;
+
+                this.messages.push({ role: 'user', content: text });
+                this.input        = '';
+                this.selectedTag  = null;   // reset SAU khi đã lưu vào activeTag
+                this.loading      = true;
+
+                this.$nextTick(() => { this.scrollBottom(); lucide.createIcons(); });
+                const ta = this.$el.querySelector('textarea');
+                if (ta) ta.style.height = 'auto';
+
+                const history        = this.messages.slice(-10);
+                const assistantIndex = this.messages.push({ role: 'assistant', content: '' }) - 1;
+
+                // Nếu là tag mode → hiển thị placeholder "đang xử lý"
+                if (activeTag) {
+                    const tagLabels = {
+                        create_exam:      'Đang tạo bài thi',
+                        create_schedule:  'Đang lập lịch học',
+                        create_flashcard: 'Đang tạo flash card',
+                    };
+                    this.messages[assistantIndex].content = tagLabels[activeTag] + '...';
+                    this.$nextTick(() => this.scrollBottom());
+                }
+
+                try {
+                    const response = await fetch('/api/chatbot/stream', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        },
+                        body: JSON.stringify({
+                            message: text,
+                            history: history,
+                            tag:     activeTag,   // ← dùng biến tạm, không phải this.selectedTag
+                        }),
+                    });
+
+                    if (!response.ok) {
+                        const errorBody = await response.text();
+                        throw new Error(errorBody || 'Lỗi server');
+                    }
+
+                    const reader = response.body?.getReader();
+                    if (!reader) throw new Error('Không hỗ trợ streaming trình duyệt.');
+
+                    // Reset placeholder trước khi nhận stream thật
+                    this.messages[assistantIndex].content = '';
+
+                    const decoder = new TextDecoder();
+                    let done = false;
+                    while (!done) {
+                        const { value, done: readerDone } = await reader.read();
+                        if (readerDone) { done = true; break; }
+                        const chunk = decoder.decode(value, { stream: true });
+                        if (chunk) {
+                            this.messages[assistantIndex].content += chunk;
+                            this.$nextTick(() => this.scrollBottom());
+                        }
+                    }
+
+                    if (activeTag === 'create_flashcard') {
+                        window.dispatchEvent(new CustomEvent('chatbot:flashcard-created'));
+                    }
+
+                } catch (err) {
+                    const msg = err instanceof Error ? err.message : 'Lỗi khi nhận phản hồi.';
+                    this.messages[assistantIndex].content = '⚠️ ' + msg;
+                } finally {
+                    this.loading = false;
+                    this.$nextTick(() => { this.scrollBottom(); lucide.createIcons(); });
+                }
+            },
+
+            scrollBottom() {
+                const el = document.getElementById('chatMessages');
+                if (el) el.scrollTop = el.scrollHeight;
+            },
+
+            autoResize(el) {
+                el.style.height = 'auto';
+                el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+            },
+
+            formatMsg(text) {
+                if (!text) return '';
+                return text
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/`(.*?)`/g, '<code class="bg-slate-100 px-1 rounded text-xs font-mono">$1</code>')
+                    .replace(/\n/g, '<br>');
+            },
+        };
+    }
+</script>
+@endpush
+@endonce
