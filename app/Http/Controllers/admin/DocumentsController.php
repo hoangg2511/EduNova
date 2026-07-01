@@ -130,6 +130,12 @@ class DocumentsController extends Controller
         }
 
         $document->approve($request->user()->id);
+        
+        $this->walletService->rewardDocumentApproved(
+            $document->uploader,
+            $document,
+            $document->name
+        );
 
         // Fresh + eager load để formatDoc đúng
         $document->load(['uploader', 'types', 'tags']);

@@ -36,10 +36,109 @@
         .frosted-card:hover { box-shadow:0 12px 20px -3px rgba(99,102,241,0.08),0 4px 6px -2px rgba(99,102,241,0.03); transform:translateY(-2px); }
         .bg-blur-circles::before { content:''; position:fixed; top:-10%; left:-10%; width:40%; height:40%; background:radial-gradient(circle,#c7d2fe 0%,transparent 70%); border-radius:50%; filter:blur(120px); z-index:-10; pointer-events:none; }
         .bg-blur-circles::after { content:''; position:fixed; bottom:-10%; right:-10%; width:50%; height:50%; background:radial-gradient(circle,#ddd6fe 0%,transparent 70%); border-radius:50%; filter:blur(150px); z-index:-10; pointer-events:none; }
+        [x-cloak] { display: none !important; }
     </style>
 
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+
+    {{-- ✅ Alpine store dùng chung cho ví Coin — mọi component (topbar, chatbot, trang tài liệu...)
+         đều đọc/ghi cùng một nguồn số dư để luôn đồng bộ. --}}
+    @auth
+    <script>
+        document.addEventListener('alpine:init', () => {
+            Alpine.store('wallet', {
+                balance: null,
+                options: null,
+                modalOpen: false,
+                modalType: null, // 'token' | 'download'
+                purchasing: false,
+                error: null,
+
+                async init() {
+                    await this.fetchBalance();
+                },
+
+                csrfToken() {
+                    return document.querySelector('meta[name="csrf-token"]')?.content ?? '';
+                },
+
+                async fetchBalance() {
+                    try {
+                        const res = await fetch('/api/wallet/balance', { headers: { 'Accept': 'application/json' } });
+                        const data = await res.json();
+                        if (data?.success) this.balance = data.balance;
+                    } catch (e) {
+                        console.warn('Không thể tải số dư coin:', e);
+                    }
+                },
+
+                async fetchOptions() {
+                    try {
+                        const res = await fetch('/api/wallet/purchase-options', { headers: { 'Accept': 'application/json' } });
+                        const data = await res.json();
+                        if (data?.success) {
+                            this.options = data;
+                            this.balance = data.balance;
+                        }
+                    } catch (e) {
+                        console.warn('Không thể tải tỷ lệ quy đổi coin:', e);
+                    }
+                },
+
+                async openModal(type) {
+                    this.modalType = type;
+                    this.error = null;
+                    this.modalOpen = true;
+                    if (!this.options) await this.fetchOptions();
+                },
+
+                closeModal() {
+                    this.modalOpen = false;
+                    this.error = null;
+                },
+
+                /**
+                 * Thực hiện mua gói token/lượt tải bằng coin.
+                 * Trả về dữ liệu phản hồi server (token_limit hoặc download_limit mới)
+                 * để component gọi (chatbot, trang tài liệu...) tự cập nhật UI cục bộ.
+                 */
+                async purchase(type = null) {
+                    const targetType = type ?? this.modalType;
+                    const url = targetType === 'token' ? '/api/wallet/buy-token' : '/api/wallet/buy-download';
+
+                    this.purchasing = true;
+                    this.error = null;
+                    try {
+                        const res = await fetch(url, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json',
+                                'X-CSRF-TOKEN': this.csrfToken(),
+                            },
+                        });
+                        const data = await res.json();
+                        if (!res.ok || !data.success) {
+                            throw new Error(data.message || 'Giao dịch thất bại, vui lòng thử lại.');
+                        }
+                        this.balance = data.balance;
+                        this.modalOpen = false;
+                        window.dispatchEvent(new CustomEvent('wallet:purchased', { detail: data }));
+                        if (typeof showToast === 'function') showToast(data.message, 'success');
+                        return data;
+                    } catch (e) {
+                        this.error = e.message;
+                        if (typeof showToast === 'function') showToast(e.message, 'error');
+                        throw e;
+                    } finally {
+                        this.purchasing = false;
+                    }
+                },
+            });
+        });
+    </script>
+    @endauth
 
     @stack('styles')
 </head>
@@ -101,9 +200,104 @@
         </div>
 
         {{-- ✅ Chatbot nằm TRONG cùng x-data wrapper --}}
+        @php
+            $userLog = auth()->check() 
+                ? \App\Models\UserLog::where('user_id', auth()->id())->first() 
+                : null;
+            $tokenLimit = $userLog?->token_limit ?? 0;
+        @endphp
         @include('layouts.chatbot')
 
     </div>{{-- end x-data --}}
+
+    {{-- ✅ MODAL TOÀN CỤC: Đổi Coin lấy Token / Lượt tải — dùng chung cho mọi trang --}}
+    @auth
+    <div x-data x-show="$store.wallet.modalOpen" x-transition x-cloak
+        class="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" @click="$store.wallet.closeModal()"></div>
+        <div class="relative bg-white rounded-3xl shadow-2xl w-full max-w-sm p-7 space-y-5">
+
+            <template x-if="$store.wallet.modalType === 'token'">
+                <div class="flex items-center gap-3">
+                    <div class="w-11 h-11 rounded-2xl bg-indigo-100 flex items-center justify-center shrink-0">
+                        <i data-lucide="zap" class="w-5 h-5 text-indigo-600"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-base font-black text-slate-900">Đổi Coin lấy Token chat</h2>
+                        <p class="text-xs text-slate-400">Hết token chat? Dùng coin để nạp thêm ngay.</p>
+                    </div>
+                </div>
+            </template>
+            <template x-if="$store.wallet.modalType === 'download'">
+                <div class="flex items-center gap-3">
+                    <div class="w-11 h-11 rounded-2xl bg-amber-100 flex items-center justify-center shrink-0">
+                        <i data-lucide="download" class="w-5 h-5 text-amber-600"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-base font-black text-slate-900">Đổi Coin lấy lượt tải</h2>
+                        <p class="text-xs text-slate-400">Hết lượt tải tài liệu? Dùng coin để mua thêm.</p>
+                    </div>
+                </div>
+            </template>
+
+            {{-- Loading options --}}
+            <div x-show="!$store.wallet.options" class="py-4 text-center text-xs text-slate-400">
+                Đang tải tỷ lệ quy đổi...
+            </div>
+
+            <template x-if="$store.wallet.options">
+                <div class="space-y-4">
+                    {{-- Preview quy đổi --}}
+                    <div class="rounded-2xl border p-4 flex items-center justify-between"
+                        :class="$store.wallet.modalType === 'token' ? 'border-indigo-100 bg-indigo-50/50' : 'border-amber-100 bg-amber-50/50'">
+                        <div class="text-center flex-1">
+                            <p class="text-2xl font-black text-slate-900"
+                               x-text="($store.wallet.modalType === 'token' ? $store.wallet.options.token.coin_cost : $store.wallet.options.download.coin_cost)"></p>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Coin</p>
+                        </div>
+                        <i data-lucide="arrow-right" class="w-4 h-4 text-slate-400 shrink-0"></i>
+                        <div class="text-center flex-1">
+                            <p class="text-2xl font-black"
+                               :class="$store.wallet.modalType === 'token' ? 'text-indigo-600' : 'text-amber-600'"
+                               x-text="($store.wallet.modalType === 'token' ? $store.wallet.options.token.amount : $store.wallet.options.download.amount)"></p>
+                            <p class="text-[10px] text-slate-500 mt-0.5" x-text="$store.wallet.modalType === 'token' ? 'Token' : 'Lượt tải'"></p>
+                        </div>
+                    </div>
+
+                    {{-- Số dư hiện tại --}}
+                    <div class="flex items-center justify-between text-xs px-1">
+                        <span class="text-slate-400">Số dư hiện tại</span>
+                        <span class="font-bold text-slate-700 flex items-center gap-1">
+                            <i data-lucide="coins" class="w-3.5 h-3.5 text-yellow-500"></i>
+                            <span x-text="($store.wallet.balance ?? 0).toLocaleString('vi-VN')"></span>
+                        </span>
+                    </div>
+
+                    {{-- Lỗi --}}
+                    <p x-show="$store.wallet.error" x-text="$store.wallet.error"
+                        class="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2"></p>
+
+                    <div class="flex gap-3 pt-1">
+                        <button @click="$store.wallet.closeModal()"
+                            class="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-all">
+                            Hủy
+                        </button>
+                        <button @click="$store.wallet.purchase()"
+                            :disabled="$store.wallet.purchasing"
+                            class="flex-1 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-semibold hover:bg-slate-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+                            <svg x-show="$store.wallet.purchasing" class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+                            </svg>
+                            <span x-show="!$store.wallet.purchasing">Xác nhận đổi</span>
+                            <span x-show="$store.wallet.purchasing">Đang xử lý...</span>
+                        </button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+    @endauth
 
     <script>
         document.addEventListener('DOMContentLoaded', () => lucide.createIcons());

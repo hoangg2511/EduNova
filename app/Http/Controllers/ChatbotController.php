@@ -14,7 +14,7 @@ use App\Models\Security;
 use App\Models\Event;
 use App\Models\Deck;
 use App\Models\Card;
-
+use App\Models\UserLog;
 class ChatbotController extends Controller
 {
     public function __construct(private AIAgentService $aiService) {}
@@ -433,14 +433,32 @@ PROMPT
             // CHAT thường
             $assistantContent = '';
 
-            return response()->stream(function () use ($message, $systemPrompt, &$assistantContent, $userId) {
-                $this->aiService->streamOllama($message, $systemPrompt, function (string $chunk) use (&$assistantContent) {
-                    if ($chunk === '') return;
-                    $assistantContent .= $chunk;
-                    echo $chunk;
+            // ── Kiểm tra token trước khi cho chat ──────────────────────────────────
+            $estimatedCost = $this->estimateTokens($message) + 200; // 200 token buffer cho reply
+            if (!$this->hasEnoughTokens($userId, $estimatedCost)) {
+                $log = UserLog::where('user_id', $userId)->first();
+                $remaining = $log?->token_limit ?? 0;
+                return response()->stream(function () use ($remaining) {
+                    echo "⚠️ Bạn đã hết token chat (còn {$remaining} token). " .
+                        "Vui lòng nâng cấp gói để tiếp tục.";
                     @ob_flush(); @flush();
-                });
+                }, 200, ['Content-Type' => 'text/plain; charset=utf-8']);
+            }
+            // ───────────────────────────────────────────────────────────────────────
 
+            return response()->stream(function () use ($message, $systemPrompt, &$assistantContent, $userId) {
+                $this->aiService->streamOllama(
+                    $message,
+                    $systemPrompt,
+                    function (string $chunk) use (&$assistantContent) {
+                        if ($chunk === '') return;
+                        $assistantContent .= $chunk;
+                        echo $chunk;
+                        @ob_flush(); @flush();
+                    }
+                );
+
+                // Lưu message history
                 try {
                     if (!empty(trim($assistantContent))) {
                         Message::create(['user_id' => $userId, 'role' => 'ai', 'content' => $assistantContent]);
@@ -448,6 +466,15 @@ PROMPT
                 } catch (\Exception $e) {
                     Log::warning('Cannot persist assistant message: ' . $e->getMessage());
                 }
+
+                // ── Trừ token SAU KHI đã có đủ reply ──────────────────────────────
+                try {
+                    $this->consumeTokens($userId, $message, $assistantContent);
+                } catch (\Exception $e) {
+                    Log::warning('consumeTokens failed: ' . $e->getMessage());
+                }
+                // ───────────────────────────────────────────────────────────────────
+
             }, 200, [
                 'Content-Type'      => 'text/plain; charset=utf-8',
                 'Cache-Control'     => 'no-cache, no-store, must-revalidate',
@@ -540,7 +567,7 @@ PROMPT
     // ─────────────────────────────────────────────────────────────────────────
 
     private function handleExamCreation(int $userId, ?array $data, string $rawOutput): array
-    {
+     {
         // Validate dữ liệu từ AI
         if (!$data) {
             Log::error('handleExamCreation: JSON parse returned null', [
@@ -749,7 +776,7 @@ PROMPT
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
+    //  ─────────────────────────────────────────────────────────────────────────
     // SCHEDULE CREATION
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -982,5 +1009,58 @@ PROMPT
             Log::error('Flashcard Error: ' . $e->getMessage());
             return response()->json(['success' => false, 'message' => 'Lỗi khi tạo flashcard'], 500);
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // TOKEN HELPERS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Ước tính số token từ một đoạn text.
+     * Công thức đơn giản: ~4 ký tự = 1 token (chuẩn OpenAI/LLaMA).
+     */
+    private function estimateTokens(string $text): int
+    {
+        return (int) ceil(mb_strlen($text) / 4);
+    }
+
+    /**
+     * Kiểm tra user còn đủ token không.
+     * Trả về true nếu còn, false nếu hết hoặc không có log.
+     */
+    private function hasEnoughTokens(int $userId, int $required = 1): bool
+    {
+        $log = UserLog::where('user_id', $userId)->first();
+        if (!$log) return false;                        // không có log → chặn
+        return $log->token_limit >= $required;
+    }
+
+    /**
+     * Trừ token sau khi AI trả lời xong.
+     * Trừ theo tổng: token(user message) + token(AI reply).
+     * Không cho phép về âm.
+     */
+    private function consumeTokens(int $userId, string $userMessage, string $aiReply): void
+    {
+        $used = $this->estimateTokens($userMessage) + $this->estimateTokens($aiReply);
+
+        $affected = UserLog::where('user_id', $userId)
+            ->where('token_limit', '>', 0)
+            ->decrement('token_limit', $used);
+
+        // Nếu decrement vượt quá số dư (edge case race condition), clamp về 0
+        if (!$affected) {
+            UserLog::where('user_id', $userId)
+                ->update(['token_limit' => 0]);
+        }
+
+        Log::info('Token consumed', [
+            'user_id'   => $userId,
+            'used'      => $used,
+            'breakdown' => [
+                'user_msg' => $this->estimateTokens($userMessage),
+                'ai_reply' => $this->estimateTokens($aiReply),
+            ],
+        ]);
     }
 }

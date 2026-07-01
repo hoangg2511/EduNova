@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Str;
 use App\Services\SupabaseService;
+use App\Models\NewsTag;
+use App\Models\User;
 class NewsArticle extends Model
 {
     protected $fillable = [
@@ -32,11 +34,11 @@ class NewsArticle extends Model
                     ->withTimestamps();
     }
 
-    // public function bookmarkedBy(): BelongsToMany
-    // {
-    //     return $this->belongsToMany(User::class, 'news_bookmarks', 'article_id', 'user_id')
-    //                 ->withTimestamps();
-    // }
+    public function bookmarkedBy(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'news_bookmarks', 'article_id', 'user_id')
+                    ->withTimestamps();
+    }
 
     // ── Scopes ──────────────────────────────────────────────────
 

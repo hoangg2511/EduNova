@@ -36,6 +36,8 @@ Route::middleware(['auth', 'is_user'])->prefix('user')->name('user.')->group(fun
         ->middleware('auth');
 
     Route::get('/documents/{document}/download', [DocumentController::class, 'download'])->name('documents.download');
+    Route::post('/documents/{document}/reviews', [DocumentController::class, 'storeReview'])
+    ->name('documents.reviews.store');
     // Calendar & Subscription routes
     Route::get('/calendars', [CalendarController::class, 'index'])->name('calendars');
     Route::post('/calendars', [CalendarController::class, 'store'])->name('calendars.store');

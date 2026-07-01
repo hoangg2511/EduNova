@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use App\Models\UserLog;
+use App\Models\DocumentReview;
 class DocumentController extends Controller
 {
     protected $supabaseService;
@@ -23,22 +24,22 @@ class DocumentController extends Controller
     public function index()
     {
         // 1. Tất cả tài liệu
-        $documents = Document::where('status', 1)
-            ->with(['reviews', 'tags', 'types'])
+        $documents = Document::where('status', 'approved')
+        ->with(['tags', 'types', 'reviews.user:id,name']) 
             ->latest()
             ->paginate(12);
 
         // 2. Tài liệu đã lưu (Bookmark)
         $savedDocuments = auth()->user()
             ->savedDocuments()
-            ->where('status', 1)
-            ->with(['reviews', 'tags', 'types'])
+            ->where('status', 'approved')
+            ->with(['tags', 'types', 'reviews.user:id,name'])
             ->latest()
             ->paginate(12);
 
         // 3. Tài liệu tự upload (qua bảng uploads)
         $myDocuments = Document::where('uploaded_by', auth()->id())
-        ->with(['reviews', 'tags', 'types'])
+        ->with(['tags', 'types', 'reviews.user:id,name'])
         ->latest()
         ->paginate(12);
 
@@ -241,7 +242,7 @@ class DocumentController extends Controller
                 'medium_rate' => 0,
                 'size'        => $fileSizeFormatted,
                 'author'      => $validated['author'],
-                'status'      => 0,            // chờ duyệt
+                'status'      => "pending",            // chờ duyệt
                 'uploaded_by' => auth()->id(), // ← thêm
             ]);
 
@@ -363,4 +364,48 @@ class DocumentController extends Controller
         
         return round($bytes, $precision) . ' ' . $units[$i];
     }
+
+    public function storeReview(Request $request, Document $document): JsonResponse
+    {
+        $validated = $request->validate([
+            'rating'  => 'required|integer|min:1|max:5',
+            'comment' => 'nullable|string|max:1000',
+        ]);
+ 
+        // Upsert: nếu user đã đánh giá thì cập nhật, chưa thì tạo mới
+        $review = DocumentReview::updateOrCreate(
+            [
+                'document_id' => $document->id,
+                'user_id'     => auth()->id(),
+            ],
+            [
+                'rating'  => $validated['rating'],
+                'comment' => $validated['comment'] ?? null,
+            ]
+        );
+ 
+        // Tính lại rating trung bình ngay lập tức
+        $document->recalcRating();
+        $document->refresh();
+ 
+        Log::info('Document review saved', [
+            'document_id' => $document->id,
+            'user_id'     => auth()->id(),
+            'rating'      => $validated['rating'],
+        ]);
+ 
+        return response()->json([
+            'success' => true,
+            'message' => $review->wasRecentlyCreated ? 'Đã gửi đánh giá!' : 'Đã cập nhật đánh giá!',
+            'review'  => [
+                'id'      => $review->id,
+                'user'    => auth()->user()->name,
+                'rating'  => $review->rating,
+                'comment' => $review->comment ?? 'Không có nhận xét.',
+            ],
+            'new_rating'  => $document->rate,
+            'new_reviews' => $document->reviews()->count(),
+        ], 200);
+    }
+ 
 }

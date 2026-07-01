@@ -7,6 +7,7 @@ use App\Http\Controllers\admin\UsersController;
 use App\Http\Controllers\admin\NewsController;
 use App\Http\Controllers\admin\SubscriptionController;
 use App\Http\Controllers\admin\NotificationController;
+use App\Http\Controllers\admin\WalletConfigController;
 Route::middleware(['auth', 'is_admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
@@ -70,4 +71,10 @@ Route::middleware(['auth', 'is_admin'])->prefix('admin')->name('admin.')->group(
     Route::patch('/notifications/{notification}/read',               [NotificationController::class, 'markRead'])->name('notifications.markRead');
     Route::delete('/notifications/{notification}',                   [NotificationController::class, 'destroy'])->name('notifications.destroy');
 
+
+    Route::get('/wallet-configs', [WalletConfigController::class, 'index'])->name('wallet-configs.index'); // trang giao diện
+    Route::get('/wallet-configs/data', [WalletConfigController::class, 'data'])->name('wallet-configs.data');
+    Route::post('/wallet-configs', [WalletConfigController::class, 'store'])->name('wallet-configs.store');
+    Route::patch('/wallet-configs/{walletConfig}', [WalletConfigController::class, 'update'])->name('wallet-configs.update');
+    Route::delete('/wallet-configs/{walletConfig}', [WalletConfigController::class, 'destroy'])->name('wallet-configs.destroy');
 });

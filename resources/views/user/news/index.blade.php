@@ -96,6 +96,17 @@
 
 .news-toast { position:fixed; bottom:28px; left:50%; transform:translateX(-50%) translateY(80px); z-index:999; background:#1e293b; color:#fff; padding:11px 20px; border-radius:14px; font-size:13px; font-weight:500; display:flex; align-items:center; gap:8px; box-shadow:0 8px 24px rgba(0,0,0,.2); transition:transform .3s cubic-bezier(.175,.885,.32,1.275); pointer-events:none; }
 .news-toast.show { transform:translateX(-50%) translateY(0); }
+/* Thumbnail có ảnh thật → không dùng gradient background */
+.h-card-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+/* Badge vẫn hiển thị trên ảnh */
+.h-card-thumb {
+    position: relative;
+}
 </style>
 @endpush
 
@@ -126,9 +137,15 @@
 {{-- FEATURED --}}
 @if($featured)
 <a href="{{ route('user.news.show', $featured->slug) }}" class="featured-card">
-    <div class="feat-visual">
+    <div class="feat-visual" style="{{ $featured->thumbnail_url ? 'padding:0;overflow:hidden' : '' }}">
         <span class="feat-badge-top">⭐ Nổi bật</span>
-        {{ $featured->emoji }}
+        @if($featured->thumbnail_url)
+            <img src="{{ $featured->thumbnail_url }}"
+                 alt="{{ $featured->title }}"
+                 style="width:100%;height:100%;object-fit:cover;display:block">
+        @else
+            {{ $featured->emoji }}
+        @endif
     </div>
     <div class="feat-body">
         <div class="feat-cat">{{ $featured->category_label }}</div>
@@ -237,10 +254,20 @@ let sort      = 'newest';
 function card(a) {
     const b  = BADGE[a.category] || { cls:'', label:'' };
     const bm = a.bookmarked;
+
+    // ── Thumbnail: ảnh thật hoặc fallback emoji ──────────────────────────
+    const thumbHtml = a.thumbnail_url
+        ? `<img src="${a.thumbnail_url}"
+                alt="${a.title}"
+                class="w-full h-full object-cover"
+                onerror="this.parentElement.innerHTML='<span style=\\'font-size:52px\\'>${a.emoji}</span>'">`
+        : `<span style="font-size:52px">${a.emoji}</span>`;
+
     return `
     <a href="${a.detailUrl}" class="h-card">
-        <div class="h-card-thumb ${THUMB[a.category]||''}">
-            ${a.emoji}
+        <div class="h-card-thumb ${a.thumbnail_url ? '' : (THUMB[a.category] || '')}"
+             style="${a.thumbnail_url ? 'padding:0;overflow:hidden' : ''}">
+            ${thumbHtml}
             <span class="h-cat-badge ${b.cls}">${b.label}</span>
         </div>
         <div class="h-card-body">

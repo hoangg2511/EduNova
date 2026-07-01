@@ -171,6 +171,17 @@ class User extends Authenticatable
         return $this->hasMany(Deck::class);
     }
 
+     public function wallet(): HasOne
+    {
+        return $this->hasOne(\App\Models\Wallet::class)
+            ->where('currency_code', 'COIN');
+    }
+
+    public function walletTransactions(): HasMany
+    {
+        return $this->hasMany(\App\Models\WalletTransaction::class);
+    }
+
 
     public function incrementStreak()
     {
@@ -191,6 +202,15 @@ class User extends Authenticatable
         $this->save();
     }
 
+    public function wallets(): HasMany
+    {
+        return $this->hasMany(\App\Models\Wallet::class);
+    }
+
+     public function coinBalance(): int
+    {
+        return $this->wallet?->balance ?? 0;
+    }
 
     public function subscriptions(): HasMany
     {

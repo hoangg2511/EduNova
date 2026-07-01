@@ -70,10 +70,10 @@ class Document extends Model
     // /**
     //  * The reviews for this document.
     //  */
-    // public function reviews(): HasMany
-    // {
-    //     return $this->hasMany(Review::class);
-    // }
+    public function reviews(): HasMany
+{
+    return $this->hasMany(\App\Models\DocumentReview::class);
+}
     //  public function uploader(): BelongsTo
     // {
     //     return $this->belongsTo(User::class, 'user_id');
@@ -191,6 +191,17 @@ class Document extends Model
             'reviewed_by'      => $reviewerId,
             'reviewed_at'      => now(),
             'rejection_reason' => $reason,
+        ]);
+    }
+
+     public function recalcRating(): void
+    {
+        $avg   = $this->reviews()->avg('rating') ?? 0;
+        $count = $this->reviews()->count();
+ 
+        $this->update([
+            'rate'        => round($avg, 1),
+            'medium_rate' => round($avg, 1),
         ]);
     }
 }
