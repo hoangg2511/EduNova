@@ -682,10 +682,10 @@
         <div class="px-6 py-6 flex flex-col gap-3 items-center" x-show="studyQueue.length > 0">
             <div class="flex gap-3 w-full max-w-xl">
                 <button @click="studyMark('learning')" class="flex-1 py-3 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 font-semibold text-sm hover:bg-amber-500/30 transition-all">
-                    😅 Chưa thuộc
+                    Chưa thuộc
                 </button>
                 <button @click="studyMark('learned')" class="flex-1 py-3 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-semibold text-sm hover:bg-emerald-500/30 transition-all">
-                    ✅ Đã thuộc
+                    Đã thuộc
                 </button>
             </div>
             <div class="flex gap-3">
@@ -1002,7 +1002,7 @@ function fcApp(config) {
                 this.showCardModal = false;
                 this.$nextTick(() => lucide.createIcons());
 
-            } catch (error) {
+            }  catch (error) {
                 if (error.response?.data?.errors) {
                     this.cardErrors = error.response.data.errors; 
                     this.showToast('Vui lòng sửa lỗi trên form!', 'error');

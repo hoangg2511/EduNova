@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Document;
+use App\Services\WalletService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -12,6 +13,10 @@ use Illuminate\Support\Facades\Log;
 
 class DocumentsController extends Controller
 {
+    public function __construct(private WalletService $walletService)
+    {
+    }
+
     // ─── Page ─────────────────────────────────────────────────────────────────
 
     public function index(): \Illuminate\View\View

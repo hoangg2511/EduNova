@@ -21,7 +21,7 @@ class NewsService
         $query = NewsArticle::published();
 
         if ($category !== 'all') {
-            $query->category($category);
+            $query->ofCategory($category);
         }
 
         match ($sort) {

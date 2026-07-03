@@ -8,7 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
-
+use Illuminate\Support\Facades\Validator;
 class FlashCardController extends Controller
 {
     use AuthorizesRequests;
@@ -115,13 +115,26 @@ class FlashCardController extends Controller
             return response()->json(['success' => false, 'message' => 'Không tìm thấy bộ thẻ'], 404);
         }
 
-        $validated = $request->validate([
-            'name'    => 'required|string|max:255',
-            'subject' => 'nullable|string|max:255',
-            'desc'    => 'nullable|string|max:2000',
-            'color'   => 'nullable|string|max:20',
-            'status'  => 'nullable|in:new,learning,learned',
-        ]);
+        $validator = Validator::make($request->all(), [
+    'name'    => 'required|string|max:255',
+    'subject' => 'nullable|string|max:255',
+    'desc'    => 'nullable|string|max:2000',
+    'color'   => 'nullable|string|max:20',
+    'status'  => 'nullable|in:new,learning,learned',
+]);
+
+if ($validator->fails()) {
+    // Log toàn bộ lỗi nếu validate không đạt
+    Log::error('Validation Failed:', [
+        'errors' => $validator->errors()->toArray(),
+        'input'  => $request->all()
+    ]);
+    
+    // Trả lỗi về cho người dùng
+    return back()->withErrors($validator)->withInput();
+}
+
+$validated = $validator->validated();
 
         $deck->update([
             'name'        => $validated['name'],
@@ -268,6 +281,67 @@ class FlashCardController extends Controller
             'card' => $this->formatCard($card),
             // Trả thêm streak về để UI cập nhật ngay mà không cần reload
             'streak_days' => auth()->user()->streak_days 
+        ]);
+    }
+    public function updateCard(Request $request, $deckId, $cardId)
+    {
+        Log::info('Bắt đầu quy trình cập nhật thẻ', [
+            'deck_id' => $deckId,
+            'card_id' => $cardId,
+            'user_id' => auth()->id(),
+        ]);
+
+        // Xác thực deck thuộc về user hiện tại
+        $deck = Deck::where('id', $deckId)
+                    ->where('user_id', auth()->id())
+                    ->where('status', '!=', 'deleted')
+                    ->first();
+
+        if (!$deck) {
+            Log::warning('Không tìm thấy bộ thẻ khi cập nhật thẻ', ['deck_id' => $deckId]);
+            return response()->json(['success' => false, 'message' => 'Không tìm thấy bộ thẻ'], 404);
+        }
+
+        // Xác thực thẻ thuộc đúng deck đó
+        $card = Card::where('id', $cardId)
+                    ->where('deck_id', $deck->id)
+                    ->first();
+
+        if (!$card) {
+            Log::warning('Không tìm thấy thẻ để cập nhật', ['card_id' => $cardId, 'deck_id' => $deck->id]);
+            return response()->json(['success' => false, 'message' => 'Không tìm thấy thẻ'], 404);
+        }
+
+        try {
+            $validated = $request->validate([
+                'front'      => 'required|string|max:1000',
+                'back'       => 'required|string|max:1000',
+                'difficulty' => 'nullable|in:easy,medium,hard',
+                'hint'       => 'nullable|string|max:255',
+                'starred'    => 'nullable|boolean',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::error('Validation thất bại khi cập nhật thẻ', ['errors' => $e->errors(), 'card_id' => $cardId]);
+            throw $e;
+        }
+
+        $card->update([
+            'front'      => $validated['front'],
+            'back'       => $validated['back'],
+            'difficulty' => $validated['difficulty'] ?? $card->difficulty,
+            'hint'       => $validated['hint'] ?? null,
+            'starred'    => $validated['starred'] ?? $card->starred,
+        ]);
+
+        Log::info('Thẻ đã được cập nhật thành công', [
+            'card_id' => $card->id,
+            'deck_id' => $deck->id,
+            'user_id' => auth()->id(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'card'    => $this->formatCard($card),
         ]);
     }
 }

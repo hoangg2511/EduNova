@@ -3,7 +3,22 @@
 @section('title', 'Nâng cấp tài khoản')
 
 @section('content')
-<div class="max-w-6xl mx-auto px-4 py-10">
+<div class="max-w-6xl mx-auto px-4 py-10"
+     x-data="{
+        confirmOpen: false,
+        selectedPlan: null,
+        openConfirm(plan) {
+            this.selectedPlan = plan;
+            this.confirmOpen = true;
+        },
+        closeConfirm() {
+            this.confirmOpen = false;
+            this.selectedPlan = null;
+        },
+        submitConfirm() {
+            this.$refs['form_' + this.selectedPlan.id].submit();
+        }
+     }">
 
     {{-- ── Gói đang dùng ── --}}
     @if($currentSub)
@@ -17,14 +32,17 @@
             <div>
                 <p class="text-xs font-semibold text-indigo-500 uppercase tracking-widest mb-0.5">Gói hiện tại</p>
                 <p class="text-xl font-bold text-slate-800">{{ $currentSub->plan->name }}</p>
-                <p class="text-sm text-slate-500">
-                    @if($currentSub->ends_at)
-                        Hết hạn: <span class="font-semibold text-slate-700">{{ $currentSub->ends_at->format('d/m/Y') }}</span>
-                        — còn <span class="font-semibold text-indigo-600">{{ $currentSub->ends_at->diffInDays(now()) }} ngày</span>
-                    @else
-                        <span class="text-emerald-600 font-semibold">Không giới hạn thời gian</span>
-                    @endif
-                </p>
+                @if($currentSub->ends_at)
+    Hết hạn: <span class="font-semibold text-slate-700">{{ $currentSub->ends_at->format('d/m/Y') }}</span>
+    — 
+    @if($currentSub->ends_at->isPast())
+        <span class="font-semibold text-red-600">Đã hết hạn</span>
+    @else
+       còn <span class="font-semibold text-indigo-600">{{ intval(now()->diffInDays($currentSub->ends_at)) }} ngày</span>
+    @endif
+@else
+    <span class="text-emerald-600 font-semibold">Không giới hạn thời gian</span>
+@endif
             </div>
         </div>
         <div class="flex gap-3 text-sm">
@@ -61,6 +79,12 @@
         <div class="mb-6 px-5 py-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-700 font-medium flex items-center gap-2">
             <svg class="w-5 h-5 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
             {{ session('warning') }}
+        </div>
+    @endif
+    @if(session('info'))
+        <div class="mb-6 px-5 py-4 rounded-2xl bg-sky-50 border border-sky-200 text-sky-700 font-medium flex items-center gap-2">
+            <svg class="w-5 h-5 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
+            {{ session('info') }}
         </div>
     @endif
 
@@ -114,20 +138,33 @@
                 @endforeach
             </ul>
 
-            <form action="{{ route('user.subscriptions.subscribe') }}" method="POST">
+            {{-- Form thật, được submit bằng JS từ modal xác nhận, không submit trực tiếp --}}
+            <form action="{{ route('user.subscriptions.subscribe') }}" method="POST" x-ref="form_{{ $plan->id }}">
                 @csrf
                 <input type="hidden" name="plan_id" value="{{ $plan->id }}">
-                <button type="submit"
-                    class="w-full py-3 rounded-xl font-semibold text-sm transition-all
-                    {{ $currentPlan->id === $plan->id
-                        ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                        : ($plan->is_featured
-                            ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200'
-                            : 'bg-slate-800 text-white hover:bg-slate-700') }}"
-                    {{ $currentPlan->id === $plan->id ? 'disabled' : '' }}>
-                    {{ $currentPlan->id === $plan->id ? 'Gói hiện tại' : ($plan->isFree() ? 'Dùng miễn phí' : 'Đăng ký ngay →') }}
-                </button>
             </form>
+
+            <button type="button"
+                @if($currentPlan->id !== $plan->id)
+                @click="openConfirm({
+                    id: {{ $plan->id }},
+                    name: @js($plan->name),
+                    price: {{ $plan->price }},
+                    isFree: @js($plan->isFree()),
+                    token_limit: {{ $plan->token_limit }},
+                    knowledge_limit: {{ $plan->knowledge_limit }},
+                    download_limit: {{ $plan->download_limit }}
+                })"
+                @endif
+                class="w-full py-3 rounded-xl font-semibold text-sm transition-all
+                {{ $currentPlan->id === $plan->id
+                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                    : ($plan->is_featured
+                        ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200'
+                        : 'bg-slate-800 text-white hover:bg-slate-700') }}"
+                {{ $currentPlan->id === $plan->id ? 'disabled' : '' }}>
+                {{ $currentPlan->id === $plan->id ? 'Gói hiện tại' : ($plan->isFree() ? 'Dùng miễn phí' : 'Đăng ký ngay →') }}
+            </button>
         </div>
         @endforeach
     </div>
@@ -196,9 +233,100 @@
     {{-- ── FAQ ngắn ── --}}
     <div class="max-w-2xl mx-auto text-center">
         <p class="text-slate-500 text-sm">
-            Thanh toán an toàn qua <strong>Stripe</strong> • Huỷ bất cứ lúc nào • Hỗ trợ: 
+            Thanh toán an toàn qua <strong>Stripe</strong> • Huỷ bất cứ lúc nào • Hỗ trợ:
             <a href="mailto:support@edunova.vn" class="text-indigo-600 hover:underline">support@edunova.vn</a>
         </p>
     </div>
+
+    {{-- ══════════ MODAL XÁC NHẬN CHUYỂN GÓI ══════════ --}}
+    <div x-show="confirmOpen"
+         x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center p-4"
+         style="display: none;">
+
+        {{-- Overlay --}}
+        <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+             x-show="confirmOpen"
+             x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100"
+             x-transition:leave="transition ease-in duration-150"
+             x-transition:leave-start="opacity-100"
+             x-transition:leave-end="opacity-0"
+             @click="closeConfirm()"></div>
+
+        {{-- Modal box --}}
+        <div class="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6"
+             x-show="confirmOpen"
+             x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0 scale-95"
+             x-transition:enter-end="opacity-100 scale-100"
+             x-transition:leave="transition ease-in duration-150"
+             x-transition:leave-start="opacity-100 scale-100"
+             x-transition:leave-end="opacity-0 scale-95"
+             @click.outside="closeConfirm()"
+             x-ref="confirmModalBox">
+
+            <template x-if="selectedPlan">
+                <div>
+                    {{-- Icon cảnh báo --}}
+                    <!-- <div class="w-14 h-14 rounded-2xl bg-amber-100 flex items-center justify-center mb-4">
+                        <svg class="w-7 h-7 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+                        </svg>
+                    </div> -->
+
+                    <h3 class="text-lg font-bold text-slate-800 mb-2">
+                        
+                        Xác nhận chuyển sang gói <span x-text="selectedPlan.name" class="text-indigo-600"></span>?
+                    </h3>
+
+                    <p class="text-sm text-slate-500 mb-4">
+                        Khi chuyển gói, toàn bộ hạn mức sử dụng của bạn sẽ được
+                        <span class="font-semibold text-slate-700">đặt lại (reset) theo gói mới</span>,
+                        thay thế hoàn toàn hạn mức của gói hiện tại — kể cả phần bạn chưa dùng hết.
+                    </p>
+
+                    {{-- Bảng hạn mức mới --}}
+                    <div class="rounded-xl border border-amber-200 bg-amber-50 p-4 mb-5 space-y-2">
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-slate-600">Token AI</span>
+                            <span class="font-bold text-slate-800"
+                                  x-text="selectedPlan.token_limit > 0 ? new Intl.NumberFormat('vi-VN').format(selectedPlan.token_limit) : '∞ Không giới hạn'"></span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-slate-600">Bài kiến thức</span>
+                            <span class="font-bold text-slate-800"
+                                  x-text="selectedPlan.knowledge_limit > 0 ? selectedPlan.knowledge_limit : '∞ Không giới hạn'"></span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-slate-600">Tải xuống</span>
+                            <span class="font-bold text-slate-800"
+                                  x-text="selectedPlan.download_limit > 0 ? selectedPlan.download_limit : '∞ Không giới hạn'"></span>
+                        </div>
+                    </div>
+
+                    <p class="text-xs text-slate-400 mb-6" x-show="!selectedPlan.isFree">
+                        Bạn sẽ được chuyển đến cổng thanh toán SePay để hoàn tất giao dịch
+                        <span class="font-semibold" x-text="new Intl.NumberFormat('vi-VN').format(selectedPlan.price) + 'đ'"></span>.
+                    </p>
+
+                    <div class="flex gap-3">
+                        <button type="button"
+                            @click="closeConfirm()"
+                            class="flex-1 py-2.5 rounded-xl font-semibold text-sm bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all">
+                            Huỷ
+                        </button>
+                        <button type="button"
+                            @click="submitConfirm()"
+                            class="flex-1 py-2.5 rounded-xl font-semibold text-sm bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all">
+                            Xác nhận chuyển gói
+                        </button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
 </div>
 @endsection

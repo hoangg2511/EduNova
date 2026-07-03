@@ -7,7 +7,7 @@
     <h3>Vui lòng xác nhận thanh toán</h3>
 
     {{-- Form POST thẳng đến SePay, không qua Laravel --}}
-    <form method="GET" action="https://pay-sandbox.sepay.vn/v1/checkout" id="sepay-form">
+    <form method="POST" action="{{ $actionUrl }}" id="sepay-form">
         
         @foreach ($formFields as $name => $value)
             <input type="hidden" name="{{ $name }}" value="{{ $value }}">

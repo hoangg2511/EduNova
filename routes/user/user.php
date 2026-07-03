@@ -12,6 +12,7 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\NewsController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\WalletController;
 Route::middleware(['auth', 'is_user'])->prefix('user')->name('user.')->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     
@@ -66,25 +67,29 @@ Route::middleware(['auth', 'is_user'])->prefix('user')->name('user.')->group(fun
     Route::put('/flashcards/{id}',     [FlashcardController::class, 'update'])->name('flashcards.update');
     Route::delete('/flashcards/{id}',  [FlashcardController::class, 'destroy'])->name('flashcards.destroy');
     Route::delete('/cards/{id}',       [FlashcardController::class, 'destroyCard'])->name('cards.destroy');
-    Route::post('/decks/{deckId}/cards', [FlashcardController::class, 'storeCard'])->name('cards.store');
+    Route::post('/decks/{desckId}/cards', [FlashcardController::class, 'storeCard'])->name('cards.store');
+    Route::put('/decks/{deckId}/cards/{cardId}', [FlashcardController::class, 'updateCard'])->name('cards.update'); // ← THÊM DÒNG NÀY
     Route::patch('/cards/{id}/status', [FlashcardController::class, 'updateStatus']);
 
 
     Route::get('/streak', [UserController::class, 'getStreak'])->name('user.streak');
-     Route::get('/profile', function () {
-        return view('user.profile.index');
-    })->name('profile');
+    Route::get('/profile', function () {return view('user.profile.index');})->name('profile');
+    Route::put('/profile', [UserController::class, 'updateProfile'])->name('profile.update');
+    Route::post('/profile/avatar', [UserController::class, 'uploadAvatar'])->name('profile.avatar');
+    Route::put('/profile/password', [UserController::class, 'updatePassword'])->name('profile.password');
     Route::prefix('news')->name('news.')->group(function () {
  
-    Route::get('/',           [NewsController::class, 'index'])->name('index');
-    Route::get('/feed',       [NewsController::class, 'feed'])->name('feed');   // AJAX
-    Route::get('/{slug}',     [NewsController::class, 'show'])->name('show');
- 
-    // bookmark yêu cầu đăng nhập
-    Route::post('/{article}/bookmark', [NewsController::class, 'bookmark'])
-         ->name('bookmark')
-         ->middleware('auth');
-});
+        Route::get('/',           [NewsController::class, 'index'])->name('index');
+        Route::get('/feed',       [NewsController::class, 'feed'])->name('feed');   // AJAX
+        Route::get('/{slug}',     [NewsController::class, 'show'])->name('show');
+    
+        // bookmark yêu cầu đăng nhập
+        Route::post('/{article}/bookmark', [NewsController::class, 'bookmark'])
+            ->name('bookmark')
+            ->middleware('auth');
+
+        
+    });
     Route::get('/subscriptions', function () {return view('user.subscriptions.index');})->name('subscriptions');
     Route::post('/subscriptions/subscribe',[SubscriptionController::class, 'subscribe'])->name('subscriptions.subscribe');
     Route::get('/subscriptions', [SubscriptionController::class, 'index'])->name('subscriptions');
@@ -92,12 +97,16 @@ Route::middleware(['auth', 'is_user'])->prefix('user')->name('user.')->group(fun
 
         Route::get('/subscriptions/checkout/{plan}', [SubscriptionController::class, 'checkout'])->name('subscriptions.checkout');
     });
+    // 5. WALLET API (lấy số dư coin và mua token/download)
+    Route::get('/wallet/balance', [WalletController::class, 'balance']);
+    Route::get('/wallet/purchase-options', [WalletController::class, 'purchaseOptions']);
+    Route::post('/wallet/buy-token', [WalletController::class, 'buyToken']);
+    Route::post('/wallet/buy-download', [WalletController::class, 'buyDownload']);
 
-
-Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
-Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount'])->name('notifications.unread-count');
-Route::post('/notifications/{id}/read', [NotificationController::class, 'markRead'])->name('notifications.read');
-Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.read-all');
+    Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount'])->name('notifications.unread-count');
+    Route::post('/notifications/{id}/read', [NotificationController::class, 'markRead'])->name('notifications.read');
+    Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.read-all');
  
 // Trang xem tất cả thông báo (route('user.notifications.index') dùng trong blade)
 // Route::get('/notifications/list', [NotificationController::class, 'pageIndex'])->name('notifications.index');

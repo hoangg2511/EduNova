@@ -2,16 +2,20 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Controllers\NotificationController;
 use App\Models\Document;
 use App\Models\Exam;
 use App\Models\ExamAttempt;
+use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 
 class DashboardController extends Controller
 {
+    public function __construct(protected NotificationService $notificationService)
+    {
+    }
+
     public function index(Request $request)
     {
         $userId = Auth::id();
@@ -32,7 +36,7 @@ class DashboardController extends Controller
 
         $passRate = $totalAttempts > 0 ? round($passCount / $totalAttempts * 100) : 0;
 
-        $createdReminders = NotificationController::syncDueEventNotifications($userId);
+        $createdReminders = $this->notificationService->syncDueEventNotifications($userId);
         if ($createdReminders > 0) {
             Log::info("Created {$createdReminders} due event reminders for user {$userId}");
         }

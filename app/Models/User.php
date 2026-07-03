@@ -31,6 +31,7 @@ class User extends Authenticatable
         'last_studied_at',
         'firebase_uid',
         'status',
+        'avatar_url',
     ];
 
     /**

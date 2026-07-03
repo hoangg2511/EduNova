@@ -24,12 +24,12 @@
 
             {{-- Quick action --}}
             <div class="flex items-center gap-3">
-                <a href="{{ route('user.exams.store') }}"
+                <a href="{{ route('user.exams') }}"
                    class="flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white text-sm font-bold rounded-2xl hover:bg-slate-700 transition-all">
                     <i data-lucide="plus" class="w-4 h-4"></i>
                     Tạo bài thi
                 </a>
-                <a href="{{ route('user.documents.upload') }}"
+                <a href="{{ route('user.documents') }}"
                    class="flex items-center gap-2 px-5 py-2.5 border border-slate-200 text-slate-700 text-sm font-bold rounded-2xl hover:bg-slate-50 transition-all">
                     <i data-lucide="upload" class="w-4 h-4"></i>
                     Tải tài liệu
@@ -129,12 +129,12 @@
 
             {{-- ── Cột trái: Hoạt động gần đây (2/3) ── --}}
             <div class="lg:col-span-2 space-y-4">
-                <div class="flex items-center justify-between">
+                <!-- <div class="flex items-center justify-between">
                     <h2 class="text-base font-black text-slate-900 uppercase tracking-tight">Hoạt động gần đây</h2>
                     <a href="#" class="text-xs font-bold text-teal-600 hover:text-teal-800 flex items-center gap-1">
                         Xem tất cả <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
                     </a>
-                </div>
+                </div> -->
 
                 <div class="bg-white border border-slate-100 rounded-3xl overflow-hidden">
                     @if($activities->isEmpty())

@@ -16,7 +16,7 @@
         </a>
     </div>
     <!-- Filters -->
-    <div class="flex flex-wrap gap-3">
+    <!-- <div class="flex flex-wrap gap-3">
         <button class="px-4 py-2 bg-primary-600 text-white rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-primary-700 transition-all">
             Tất cả
         </button>
@@ -26,7 +26,7 @@
         <button class="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-slate-200 transition-all">
             Hoàn thành
         </button>
-    </div>
+    </div> -->
 
     <!-- Courses Grid -->
    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

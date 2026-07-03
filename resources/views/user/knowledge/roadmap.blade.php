@@ -25,17 +25,24 @@
                 <div class="space-y-2">
                     <label class="block text-sm font-bold text-slate-900">Chọn định dạng</label>
                     <div class="space-y-2">
-                        <label class="flex items-center gap-3 p-3 border border-slate-300 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
-                            <input type="radio" name="format" value="course" class="w-4 h-4">
-                            <div><div class="font-bold text-slate-900">📚 Khóa học</div><div class="text-xs text-slate-600">Chi tiết từng buổi học</div></div>
-                        </label>
-                        <label class="flex items-center gap-3 p-3 border border-slate-300 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
-                            <input type="radio" name="format" value="guide" class="w-4 h-4">
-                            <div><div class="font-bold text-slate-900">📖 Hướng dẫn</div><div class="text-xs text-slate-600">Tóm tắt hành động từng bước</div></div>
-                        </label>
+                        <label class="flex items-center gap-3 p-3 border border-slate-300 rounded-xl cursor-not-allowed opacity-60 bg-slate-100">
+                                <input type="radio" name="format" value="course" class="w-4 h-4" disabled>
+                                <div>
+                                    <div class="font-bold text-slate-900">Khóa học</div>
+                                    <div class="text-xs text-slate-600">Chi tiết từng buổi học</div>
+                                </div>
+                            </label>
+
+                            <label class="flex items-center gap-3 p-3 border border-slate-300 rounded-xl cursor-not-allowed opacity-60 bg-slate-100">
+                                <input type="radio" name="format" value="guide" class="w-4 h-4" disabled>
+                                <div>
+                                    <div class="font-bold text-slate-900">Hướng dẫn</div>
+                                    <div class="text-xs text-slate-600">Tóm tắt hành động từng bước</div>
+                                </div>
+                            </label>
                         <label class="flex items-center gap-3 p-3 border-2 border-slate-900 rounded-xl cursor-pointer bg-slate-50">
                             <input type="radio" name="format" value="roadmap" checked class="w-4 h-4">
-                            <div><div class="font-bold text-slate-900">🗺️ Lộ trình</div><div class="text-xs text-slate-600">Sơ đồ cây chủ đề học tập</div></div>
+                            <div><div class="font-bold text-slate-900">Lộ trình</div><div class="text-xs text-slate-600">Sơ đồ cây chủ đề học tập</div></div>
                         </label>
                     </div>
                 </div>
@@ -80,10 +87,10 @@
                     class="flex-1 py-3 bg-slate-900 text-white rounded-xl font-semibold hover:bg-slate-800 transition-all shadow-lg flex items-center justify-center gap-2">
                     <i data-lucide="save" class="w-5 h-5"></i> Lưu lộ trình
                 </button>
-                <button type="button" id="editRoadmapBtn"
+                <!-- <button type="button" id="editRoadmapBtn"
                     class="flex-1 py-3 border border-slate-300 text-slate-700 rounded-xl font-semibold hover:bg-slate-50 transition-all flex items-center justify-center gap-2">
                     <i data-lucide="edit" class="w-5 h-5"></i> Chỉnh sửa
-                </button>
+                </button> -->
             </div>
         </div>
 

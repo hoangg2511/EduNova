@@ -17,36 +17,20 @@ use SePay\Exceptions\ServerException;
 class PaymentController extends Controller
 {
 
-
+    /**
+     * @deprecated Hàm này KHÔNG còn được dùng để xử lý IPN thật.
+     * Logic xử lý IPN chính thức (đầy đủ log, kiểm tra user/plan, expire sub cũ,
+     * đồng bộ UserLog) đã được chuyển sang SubscriptionController::handleIpn().
+     * Route POST /payment/ipn phải trỏ tới SubscriptionController@handleIpn,
+     * KHÔNG PHẢI PaymentController@handleIpn (xem routes/web.php).
+     * Giữ lại hàm này chỉ để tránh lỗi 404 nếu còn tham chiếu cũ ở đâu đó,
+     * không nên gọi trực tiếp.
+     */
     public function handleIpn(Request $request)
     {
-        $data = $request->json()->all();
-        Log::info('IPN Raw Payload Received:', $data);
+        Log::warning('PaymentController@handleIpn: Hàm deprecated bị gọi, kiểm tra lại route /payment/ipn phải trỏ sang SubscriptionController@handleIpn');
 
-        if (($data['notification_type'] ?? '') === 'ORDER_PAID') {
-            $invoice = $data['order']['order_invoice_number'] ?? '';
-            
-            // GIẢ SỬ: Bạn định dạng order_invoice_number là "USER_{user_id}_INV_{id}"
-            // Bạn cần phân tách để lấy ra user_id
-            $parts = explode('_', $invoice);
-            $userId = $parts[1] ?? null; 
-
-            if ($userId) {
-                // Cập nhật subscription
-                \App\Models\Subscription::updateOrCreate(
-                    ['user_id' => $userId], // Tìm dựa trên user_id
-                    [
-                        'status'    => 'active', // Hoặc giá trị từ $data['...']
-                        'plan_id'   => $data['order']['orderInvoiceNumber'] ?? 'default_plan',
-                        'updated_at'=> now(),
-                    ]
-                );
-                
-                Log::info("IPN: Đã cập nhật subscription cho User ID: {$userId}");
-            }
-        }
-
-        return response()->json(['success' => true], 200);
+        return response()->json(['success' => false, 'message' => 'Deprecated endpoint'], 410);
     }
 
     public function showCheckout()
@@ -84,11 +68,11 @@ class PaymentController extends Controller
                 Log::error('PaymentController: File view [payment.checkout] không tồn tại!');
                 return "Lỗi: Không tìm thấy file view payment.checkout";
             }
-            
+
             // --- THÊM DÒNG NÀY ĐỂ DEBUG ---
             Log::debug('PaymentController: Danh sách các field sẽ gửi lên SePay:', $formFields);
             // ------------------------------
-            
+
             Log::info('PaymentController: Form fields đã được tạo', ['count' => count($formFields)]);
             return view('payment.checkout', compact('formFields'));
 
@@ -106,29 +90,29 @@ class PaymentController extends Controller
         try {
             $sepay = SePayService::getClient();
             $order = $sepay->orders()->retrieve($invoiceNumber);
-            
+
             return view('payment.detail', compact('order'));
 
         } catch (AuthenticationException $e) {
             Log::error('SePay Auth Error: ' . $e->getMessage());
             return back()->with('error', 'Lỗi xác thực với cổng thanh toán.');
-            
+
         } catch (ValidationException $e) {
             Log::warning('SePay Validation Error: ' . $e->getMessage());
             return back()->withErrors($e->getFieldErrors());
-            
+
         } catch (NotFoundException $e) {
             Log::warning('SePay Order Not Found: ' . $invoiceNumber);
             return back()->with('error', 'Không tìm thấy đơn hàng này.');
-            
+
         } catch (RateLimitException $e) {
             Log::error('SePay Rate Limit: ' . $e->getRetryAfter());
             return back()->with('error', 'Quá nhiều yêu cầu, vui lòng thử lại sau ' . $e->getRetryAfter() . ' giây.');
-            
+
         } catch (ServerException $e) {
             Log::critical('SePay Server Error: ' . $e->getMessage());
             return back()->with('error', 'Hệ thống thanh toán đang gặp sự cố, vui lòng quay lại sau.');
-            
+
         } catch (\Exception $e) {
             // Bắt các lỗi không xác định khác
             Log::error('Unexpected Payment Error: ' . $e->getMessage());
@@ -141,7 +125,7 @@ class PaymentController extends Controller
     {
         // Lấy ID đơn hàng từ query string, ví dụ: /payment/success?order=DH123
         $orderId = $request->query('order');
-            
+
         // Kiểm tra trong DB xem đơn hàng $orderId đã thực sự PAID chưa
         // Nếu chưa PAID, có thể redirect về trang kiểm tra hoặc báo lỗi
         return view('payment.success', compact('orderId'));

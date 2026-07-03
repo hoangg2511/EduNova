@@ -12,10 +12,14 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->validateCsrfTokens(except: [
+        'payment/ipn',
+        ]);
         $middleware->statefulApi();
         // Áp dụng middleware web cho tất cả routes
         $middleware->web(append: [
             // Thêm middleware tùy chỉnh nếu cần
+        
         ]);
         
         // Đăng ký tên viết tắt cho Middleware tự viết

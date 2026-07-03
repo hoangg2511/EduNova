@@ -46,8 +46,7 @@ return [
     'sepay'=>[
 
             'api_key' => env('SEPAY_API_KEY'),
-            'api_url_production' => env('SEPAY_API_URL_PRODUCTION'),
-            'api_url_sandbox' => env('SEPAY_API_URL_SANDBOX'),
+            'api_url' => env('SEPAY_API_URL'),
             'webhook_secret' => env('SEPAY_WEBHOOK_SECRET'),
             'merchant_id'=> env('SEPAY_MERCHANT_ID'),
             'merchant_secret'=> env('SEPAY_MERCHANT_SECRET_KEY'),

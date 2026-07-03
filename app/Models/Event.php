@@ -22,10 +22,12 @@ class Event extends Model
         'end',
         'note',
         'status',
+        'repeat_type', 'repeat_end_date', 'repeat_group_id',
     ];
 
     protected $casts = [
         'date' => 'date',
+        'repeat_end_date' => 'date',
     ];
 
     public function user(): BelongsTo
