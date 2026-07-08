@@ -36,10 +36,160 @@
         .frosted-card:hover { box-shadow:0 12px 20px -3px rgba(99,102,241,0.08),0 4px 6px -2px rgba(99,102,241,0.03); transform:translateY(-2px); }
         .bg-blur-circles::before { content:''; position:fixed; top:-10%; left:-10%; width:40%; height:40%; background:radial-gradient(circle,#c7d2fe 0%,transparent 70%); border-radius:50%; filter:blur(120px); z-index:-10; pointer-events:none; }
         .bg-blur-circles::after { content:''; position:fixed; bottom:-10%; right:-10%; width:50%; height:50%; background:radial-gradient(circle,#ddd6fe 0%,transparent 70%); border-radius:50%; filter:blur(150px); z-index:-10; pointer-events:none; }
+        [x-cloak] { display: none !important; }
     </style>
 
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+
+    {{-- ✅ Alpine store dùng chung cho ví Coin — chỉ cần cho user thường (không phải admin),
+         vì Coin/Modal chỉ hiển thị trong topbar với user thường. --}}
+    @auth
+        @unless(auth()->user()->isAdmin())
+        <script>
+            document.addEventListener('alpine:init', () => {
+                Alpine.store('wallet', {
+                    balance: null,
+                    options: null,
+                    modalOpen: false,
+                    modalType: null, // 'token' | 'download'
+                    purchasing: false,
+                    error: null,
+                    quantity: 1,
+                    maxQuantity: 20,
+
+                    async init() {
+                        await this.fetchBalance();
+                    },
+
+                    csrfToken() {
+                        return document.querySelector('meta[name="csrf-token"]')?.content ?? '';
+                    },
+
+                    async fetchBalance() {
+                        try {
+                            const res = await fetch('/user/wallet/balance', { headers: { 'Accept': 'application/json' } });
+                            const data = await res.json();
+                            if (data?.success) this.balance = data.balance;
+                        } catch (e) {
+                            console.warn('Không thể tải số dư coin:', e);
+                        }
+                    },
+
+                    async fetchOptions() {
+                        try {
+                            const res = await fetch('/user/wallet/purchase-options', { headers: { 'Accept': 'application/json' } });
+                            const data = await res.json();
+                            if (data?.success) {
+                                this.options = data;
+                                this.balance = data.balance;
+
+                                // ✅ Đợi Alpine render xong khối x-if (giờ mới thực sự có options) rồi mới vẽ icon
+                                Alpine.nextTick(() => {
+                                    if (window.lucide) lucide.createIcons();
+                                });
+                            }
+                        } catch (e) {
+                            console.warn('Không thể tải tỷ lệ quy đổi coin:', e);
+                        }
+                    },
+
+                    async openModal(type) {
+                        this.modalType = type;
+                        this.error = null;
+                        this.quantity = 1;
+                        this.modalOpen = true;
+                        if (!this.options) await this.fetchOptions();
+                    },
+
+                    closeModal() {
+                        this.modalOpen = false;
+                        this.error = null;
+                    },
+
+                    currentOption() {
+                        if (!this.options) return null;
+                        return this.modalType === 'token' ? this.options.token : this.options.download;
+                    },
+                    unitCost() {
+                        return this.currentOption()?.coin_cost ?? 0;
+                    },
+                    unitAmount() {
+                        return this.currentOption()?.amount ?? 0;
+                    },
+                    totalCost() {
+                        return this.unitCost() * this.quantity;
+                    },
+                    totalAmount() {
+                        return this.unitAmount() * this.quantity;
+                    },
+                    canAfford() {
+                        return this.balance !== null && this.totalCost() <= this.balance;
+                    },
+                    affordableMax() {
+                        const unit = this.unitCost();
+                        if (!unit || this.balance === null) return 1;
+                        return Math.max(1, Math.min(this.maxQuantity, Math.floor(this.balance / unit)));
+                    },
+
+                    increment() {
+                        if (this.quantity < this.maxQuantity) this.quantity++;
+                    },
+                    decrement() {
+                        if (this.quantity > 1) this.quantity--;
+                    },
+                    setQuantity(val) {
+                        const n = parseInt(val) || 1;
+                        this.quantity = Math.min(Math.max(n, 1), this.maxQuantity);
+                    },
+                    setMax() {
+                        this.quantity = this.affordableMax();
+                    },
+
+                    async purchase(type = null) {
+                        const targetType = type ?? this.modalType;
+                        const url = targetType === 'token' ? '/user/wallet/buy-token' : '/user/wallet/buy-download';
+
+                        if (!this.canAfford()) {
+                            this.error = 'Số dư Coin không đủ để thực hiện giao dịch này.';
+                            return;
+                        }
+
+                        this.purchasing = true;
+                        this.error = null;
+                        try {
+                            const res = await fetch(url, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Accept': 'application/json',
+                                    'X-CSRF-TOKEN': this.csrfToken(),
+                                },
+                                body: JSON.stringify({ quantity: this.quantity }),
+                            });
+                            const data = await res.json();
+                            if (!res.ok || !data.success) {
+                                throw new Error(data.message || 'Giao dịch thất bại, vui lòng thử lại.');
+                            }
+                            this.balance = data.balance;
+                            this.modalOpen = false;
+                            this.quantity = 1;
+                            window.dispatchEvent(new CustomEvent('wallet:purchased', { detail: data }));
+                            if (typeof showToast === 'function') showToast(data.message, 'success');
+                            return data;
+                        } catch (e) {
+                            this.error = e.message;
+                            if (typeof showToast === 'function') showToast(e.message, 'error');
+                            throw e;
+                        } finally {
+                            this.purchasing = false;
+                        }
+                    },
+                });
+            });
+        </script>
+        @endunless
+    @endauth
 
     @stack('styles')
 </head>
@@ -49,7 +199,6 @@
         sidebarOpen: true, 
         chatOpen: localStorage.getItem('chatOpen') === 'true',
         init() {
-            // Lưu chatOpen vào localStorage mỗi khi nó thay đổi
             this.$watch('chatOpen', val => localStorage.setItem('chatOpen', val));
         }
         }" x-init="lucide.createIcons(); init()" class="flex min-h-screen overflow-hidden">
@@ -101,6 +250,12 @@
         </div>
 
         {{-- ✅ Chatbot nằm TRONG cùng x-data wrapper --}}
+        @php
+            $userLog = auth()->check() 
+                ? \App\Models\UserLog::where('user_id', auth()->id())->first() 
+                : null;
+            $tokenLimit = $userLog?->token_limit ?? 0;
+        @endphp
         @include('layouts.chatbot')
 
     </div>{{-- end x-data --}}
@@ -109,7 +264,6 @@
         document.addEventListener('DOMContentLoaded', () => lucide.createIcons());
         document.addEventListener('alpine:initialized', () => lucide.createIcons());
 
-        // Đóng chat từ inner scope
         document.addEventListener('close-chat', () => {
             const wrapper = document.querySelector('[x-data]');
             if (wrapper && wrapper._x_dataStack) {
@@ -134,23 +288,19 @@
                 const msg = document.getElementById('globalToastMessage');
                 if (!el || !icon || !msg) return console.warn('Toast element missing');
 
-                // set type classes
                 el.classList.remove('bg-emerald-600', 'bg-red-500', 'bg-blue-600', 'bg-amber-600');
                 if (type === 'success') el.classList.add('bg-emerald-600');
                 else if (type === 'error') el.classList.add('bg-red-500');
                 else if (type === 'info') el.classList.add('bg-blue-600');
                 else if (type === 'warning') el.classList.add('bg-amber-600');
 
-                // set icon
                 const iconName = type === 'success' ? 'check-circle' : (type === 'error' ? 'alert-circle' : (type === 'warning' ? 'alert-triangle' : 'info'));
                 icon.setAttribute('data-lucide', iconName);
                 msg.textContent = message;
 
-                // show
                 el.style.display = 'flex';
                 lucide.createIcons();
 
-                // hide after duration
                 clearTimeout(window._globalToastTimer);
                 window._globalToastTimer = setTimeout(() => {
                     el.style.display = 'none';

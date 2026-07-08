@@ -14,6 +14,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use App\Services\FirebaseService;
+use App\Services\SupabaseService;
 
 class UserController extends Controller
 {
@@ -86,6 +87,133 @@ class UserController extends Controller
         });
     }
 
+    public function updateProfile(Request $request)
+    {
+        $user = Auth::user();
+
+        $validator = Validator::make($request->all(), [
+            'name'  => 'required|string|max:255',
+            'email' => 'required|string|email|max:255|unique:users,email,' . $user->id,
+        ]);
+
+        if ($validator->fails()) {
+            Log::warning('Cập nhật hồ sơ thất bại - validate lỗi', [
+                'user_id' => $user->id,
+                'errors'  => $validator->errors(),
+            ]);
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $user->update([
+            'name'  => $request->name,
+            'email' => $request->email,
+        ]);
+
+        Log::info('Người dùng cập nhật hồ sơ thành công', ['user_id' => $user->id]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Cập nhật hồ sơ thành công!',
+            'user'    => [
+                'name'       => $user->name,
+                'email'      => $user->email,
+                'avatar_url' => $user->avatar_url,
+            ],
+        ]);
+    }
+
+    public function uploadAvatar(Request $request, SupabaseService $supabase)
+    {
+        $user = Auth::user();
+
+        $validator = Validator::make($request->all(), [
+            'avatar' => 'required|image|mimes:jpg,jpeg,png,webp|max:2048', // tối đa 2MB
+        ]);
+
+        if ($validator->fails()) {
+            Log::warning('Upload avatar thất bại - validate lỗi', [
+                'user_id' => $user->id,
+                'errors'  => $validator->errors(),
+            ]);
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        try {
+            $file   = $request->file('avatar');
+            $bucket = 'documents'; // Bucket mặc định trong Supabase Storage
+            $folder = 'users/' . $user->id;
+
+            $response = $supabase->uploadImage($file, $bucket, $folder);
+
+            if (!$response->successful()) {
+                Log::error('Upload avatar lên Supabase thất bại', [
+                    'user_id' => $user->id,
+                    'status'  => $response->status(),
+                    'body'    => $response->body(),
+                ]);
+                return response()->json(['success' => false, 'message' => 'Không thể upload ảnh lên máy chủ lưu trữ.'], 500);
+            }
+
+            // Lấy đường dẫn thực tế Supabase trả về (Key trong response) để build public URL chuẩn
+            $data = $response->json();
+            $path = $data['Key'] ?? "{$bucket}/{$folder}/" . $file->hashName();
+
+            // Cắt bỏ tên bucket ở đầu path nếu Supabase trả kèm (một số phiên bản trả "bucket/path")
+            $relativePath = str_starts_with($path, "{$bucket}/")
+                ? substr($path, strlen($bucket) + 1)
+                : $path;
+
+            $publicUrl = $supabase->getPublicUrl($bucket, $relativePath);
+
+            $user->update(['avatar_url' => $publicUrl]);
+
+            Log::info('Upload avatar thành công', ['user_id' => $user->id, 'url' => $publicUrl]);
+
+            return response()->json([
+                'success'    => true,
+                'message'    => 'Cập nhật ảnh đại diện thành công!',
+                'avatar_url' => $publicUrl,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Lỗi ngoại lệ khi upload avatar', [
+                'user_id' => $user->id,
+                'error'   => $e->getMessage(),
+            ]);
+            return response()->json(['success' => false, 'message' => 'Đã có lỗi xảy ra khi upload ảnh.'], 500);
+        }
+    }
+    public function updatePassword(Request $request)
+    {
+        $user = Auth::user();
+
+        $validator = Validator::make($request->all(), [
+            'current_password' => 'required|string',
+            'password'          => 'required|string|min:8|confirmed',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        if (!Hash::check($request->current_password, $user->password)) {
+            Log::warning('Đổi mật khẩu thất bại - mật khẩu hiện tại không đúng', ['user_id' => $user->id]);
+            return response()->json([
+                'success' => false,
+                'errors'  => ['current_password' => ['Mật khẩu hiện tại không đúng.']],
+            ], 422);
+        }
+
+        $user->update([
+            'password' => Hash::make($request->password),
+        ]);
+
+        Log::info('Người dùng đổi mật khẩu thành công', ['user_id' => $user->id]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Đổi mật khẩu thành công!',
+        ]);
+    }
     /**
      * Display the specified resource.
      */

@@ -5,7 +5,6 @@ namespace Database\Seeders;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
-
 class DatabaseSeeder extends Seeder
 {
     use WithoutModelEvents;
@@ -36,11 +35,11 @@ class DatabaseSeeder extends Seeder
         $this->call(FlashCardSeeder::class);
         $this->call(NewsArticleSeeder::class);
         $this->call(DocumentSeeder::class);
-        $this->call(NewsArticleSeeder::class);
         $this->call(NotificationSeeder::class);
         $this->call(PlanSeeder::class);
         $this->call(QuestionSeeder::class);
         $this->call(UserSeeder::class);
+        $this->call(WalletConfigSeeder::class);
         
     }
 }

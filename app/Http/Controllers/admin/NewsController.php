@@ -28,6 +28,8 @@ class NewsController extends Controller
      */
     public function data(Request $request): JsonResponse
     {
+        NewsArticle::publishDueScheduled(); // lazy fallback
+
         $articles = NewsArticle::with('tags')
             ->search($request->input('search'))
             ->ofStatus($request->input('status'))

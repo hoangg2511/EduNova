@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class Document extends Model
 {
     protected $fillable = [
-        'name', 'description', 'url', 'downloads', 
+        'name', 'description', 'url', 'downloads','views', 
         'rate', 'medium_rate', 'size','author','status', 'uploaded_by','reviewed_at','rejection_reason'
     ];
 
@@ -21,6 +21,17 @@ class Document extends Model
     {
         return $this->belongsToMany(User::class, 'recent_activities')
             ->withTimestamps();
+    }
+
+    
+    public function hide(): void
+    {
+        $this->update(['status' => 'hidden']);
+    }
+
+    public function unhide(): void
+    {
+        $this->update(['status' => 'approved']);
     }
 
     /**
@@ -70,10 +81,10 @@ class Document extends Model
     // /**
     //  * The reviews for this document.
     //  */
-    // public function reviews(): HasMany
-    // {
-    //     return $this->hasMany(Review::class);
-    // }
+    public function reviews(): HasMany
+{
+    return $this->hasMany(\App\Models\DocumentReview::class);
+}
     //  public function uploader(): BelongsTo
     // {
     //     return $this->belongsTo(User::class, 'user_id');
@@ -174,7 +185,8 @@ class Document extends Model
     public function isPending(): bool   { return $this->status === 'pending';  }
     public function isApproved(): bool  { return $this->status === 'approved'; }
     public function isRejected(): bool  { return $this->status === 'rejected'; }
- 
+    public function isHidden(): bool    { return $this->status === 'hidden'; }
+
     public function approve(int $reviewerId): void
     {
         $this->update([
@@ -191,6 +203,17 @@ class Document extends Model
             'reviewed_by'      => $reviewerId,
             'reviewed_at'      => now(),
             'rejection_reason' => $reason,
+        ]);
+    }
+
+     public function recalcRating(): void
+    {
+        $avg   = $this->reviews()->avg('rating') ?? 0;
+        $count = $this->reviews()->count();
+ 
+        $this->update([
+            'rate'        => round($avg, 1),
+            'medium_rate' => round($avg, 1),
         ]);
     }
 }

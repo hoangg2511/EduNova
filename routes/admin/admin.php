@@ -1,4 +1,4 @@
-    <?php
+<?php
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\admin\DashboardController;
@@ -7,6 +7,7 @@ use App\Http\Controllers\admin\UsersController;
 use App\Http\Controllers\admin\NewsController;
 use App\Http\Controllers\admin\SubscriptionController;
 use App\Http\Controllers\admin\NotificationController;
+use App\Http\Controllers\admin\WalletConfigController;
 Route::middleware(['auth', 'is_admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
@@ -25,12 +26,16 @@ Route::middleware(['auth', 'is_admin'])->prefix('admin')->name('admin.')->group(
     // Per-document actions
     Route::patch('/documents/{document}/approve',       [DocumentsController::class, 'approve'])->name('documents.approve');
     Route::patch('/documents/{document}/reject',        [DocumentsController::class, 'reject'])->name('documents.reject');
+    Route::patch('/documents/{document}/ai-review',     [DocumentsController::class, 'aiReview'])->name('documents.aiReview');
     Route::post('/documents/{document}/view',           [DocumentsController::class, 'incrementView'])->name('documents.view');
+    Route::get('/documents/{document}/file',            [DocumentsController::class, 'viewFile'])->name('documents.viewFile'); 
     Route::delete('/documents/{document}',              [DocumentsController::class, 'destroy'])->name('documents.destroy');
+    Route::patch('/documents/{document}/toggle-visibility', [DocumentsController::class, 'toggleVisibility'])->name('documents.toggleVisibility');
 
     
     Route::get('/users', [UsersController::class, 'index'])->name('users.index');
     Route::get('/users/data', [UsersController::class, 'data'])->name('users.data');
+    Route::get('/users/{user}', [UsersController::class, 'show'])->name('users.show');
     Route::post('/users/bulk-ban',    [UsersController::class, 'bulkBan'])->name('users.bulkBan');
     Route::post('/users/bulk-delete', [UsersController::class, 'bulkDelete'])->name('users.bulkDelete');
     Route::post('/users',                        [UsersController::class, 'store'])->name('users.store');
@@ -70,4 +75,10 @@ Route::middleware(['auth', 'is_admin'])->prefix('admin')->name('admin.')->group(
     Route::patch('/notifications/{notification}/read',               [NotificationController::class, 'markRead'])->name('notifications.markRead');
     Route::delete('/notifications/{notification}',                   [NotificationController::class, 'destroy'])->name('notifications.destroy');
 
+
+    Route::get('/wallet-configs', [WalletConfigController::class, 'index'])->name('wallet-configs.index'); // trang giao diện
+    Route::get('/wallet-configs/data', [WalletConfigController::class, 'data'])->name('wallet-configs.data');
+    Route::post('/wallet-configs', [WalletConfigController::class, 'store'])->name('wallet-configs.store');
+    Route::patch('/wallet-configs/{walletConfig}', [WalletConfigController::class, 'update'])->name('wallet-configs.update');
+    Route::delete('/wallet-configs/{walletConfig}', [WalletConfigController::class, 'destroy'])->name('wallet-configs.destroy');
 });

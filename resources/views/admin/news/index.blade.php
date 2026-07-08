@@ -268,9 +268,22 @@
                     class="px-4 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-all">
                     Lưu nháp
                 </button>
-                <button @click="saveArticle('published')"
+
+                {{-- Nút này chỉ hiện khi trạng thái đang chọn là "Lên lịch" --}}
+                <button x-show="form.status==='scheduled'" @click="saveArticle('scheduled')"
+                    class="px-4 py-2 border border-indigo-200 text-indigo-600 rounded-xl text-sm font-semibold hover:bg-indigo-50 transition-all flex items-center gap-1.5">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                    </svg>
+                    Lên lịch đăng
+                </button>
+
+                {{-- Nút "Đăng bài" chỉ hiện khi KHÔNG chọn lên lịch --}}
+                <button x-show="form.status!=='scheduled'" @click="saveArticle('published')"
                     class="px-4 py-2 bg-slate-900 text-white rounded-xl text-sm font-semibold hover:bg-slate-700 transition-all flex items-center gap-1.5">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                    </svg>
                     <span x-text="editingArticle ? 'Cập nhật' : 'Đăng bài'"></span>
                 </button>
             </div>
@@ -405,7 +418,7 @@
                         <button class="toolbar-btn" @click="execCmd('formatBlock','p')" title="Paragraph">¶</button>
                         <div class="w-px h-5 bg-slate-200 mx-1"></div>
                         <button class="toolbar-btn" @click="execCmd('insertUnorderedList')" title="List">• List</button>
-                        <button class="toolbar-btn" @click="execCmd('formatBlock','blockquote')" title="Quote">" Quote</button>
+                        <button class="toolbar-btn" @click="toggleQuote()" title="Quote">" Quote</button>
                         <div class="w-px h-5 bg-slate-200 mx-1"></div>
                         <button class="toolbar-btn" @click="insertLink()" title="Link">🔗 Link</button>
                         <button class="toolbar-btn text-slate-400 text-xs ml-auto" x-text="`~${wordCount} từ · ${readTime} phút đọc`"></button>
@@ -632,6 +645,39 @@ function newsManager() {
             });
         },
 
+        toggleQuote() {
+            const editor = document.getElementById('editorContent');
+            if (!editor) return;
+            editor.focus();
+
+            const sel = window.getSelection();
+            if (!sel.rangeCount) return;
+
+            // Tìm blockquote gần nhất chứa con trỏ hiện tại
+            let node = sel.anchorNode;
+            let bq = null;
+            while (node && node !== editor) {
+                if (node.nodeType === 1 && node.tagName === 'BLOCKQUOTE') {
+                    bq = node;
+                    break;
+                }
+                node = node.parentNode;
+            }
+
+            if (bq) {
+                // Đang trong blockquote -> gỡ ra (unwrap), giữ nguyên nội dung bên trong
+                const parent = bq.parentNode;
+                while (bq.firstChild) {
+                    parent.insertBefore(bq.firstChild, bq);
+                }
+                parent.removeChild(bq);
+            } else {
+                // Chưa có blockquote -> bật
+                document.execCommand('formatBlock', false, 'blockquote');
+            }
+
+            this.form.content = editor.innerHTML;
+        },
         onEditorInput(e) {
             this.form.content = e.target.innerHTML;
         },
@@ -651,9 +697,26 @@ function newsManager() {
 
         // ── Save ───────────────────────────────────────────────────────────
         async saveArticle(status) {
-            this.loading = true;
             this.form.content = document.getElementById('editorContent')?.innerHTML ?? this.form.content;
             this.form.status  = status;
+
+            if (status === 'scheduled') {
+                if (!this.form.scheduleDate) {
+                    this.showToast('Vui lòng chọn ngày giờ đăng bài', 'error');
+                    return;
+                }
+                if (new Date(this.form.scheduleDate) <= new Date()) {
+                    this.showToast('Ngày giờ đăng phải ở tương lai', 'error');
+                    return;
+                }
+            }
+
+            if (!this.form.title?.trim()) {
+                this.showToast('Vui lòng nhập tiêu đề bài viết', 'error');
+                return;
+            }
+
+            this.loading = true;
 
             const payload = {
                 title:         this.form.title,
@@ -664,7 +727,7 @@ function newsManager() {
                 tags:          this.form.tags,
                 status:        this.form.status,
                 is_featured:   this.form.pinned,
-                scheduled_at:  this.form.scheduleDate || null,
+                scheduled_at:  status === 'scheduled' ? this.form.scheduleDate : null,
                 thumbnail_url: this.form.thumbnail_url || null,
             };
 
@@ -680,7 +743,11 @@ function newsManager() {
                 this._syncTabs(res.tabs);
                 this.kpis      = res.kpis ?? this.kpis;
                 this.editorOpen = false;
-                this.showToast(res.message ?? (status === 'published' ? 'Đã đăng bài!' : 'Đã lưu nháp'));
+                this.showToast(res.message ?? (
+                    status === 'published'  ? 'Đã đăng bài!' :
+                    status === 'scheduled'  ? 'Đã lên lịch đăng bài!' :
+                    'Đã lưu nháp'
+                ));
                 this.$nextTick(() => this.reinitIcons());
             } catch (e) {
                 this.showToast(e.message, 'error');

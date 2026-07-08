@@ -21,7 +21,7 @@ class NewsService
         $query = NewsArticle::published();
 
         if ($category !== 'all') {
-            $query->category($category);
+            $query->ofCategory($category);
         }
 
         match ($sort) {
@@ -75,7 +75,8 @@ class NewsService
     public function getRelated(NewsArticle $article, int $limit = 3): Collection
     {
         return NewsArticle::published()
-            ->category($article->category)
+            // ->category($article->category)
+            ->where('category', $article->category)
             ->where('id', '!=', $article->id)
             ->orderByDesc('views')
             ->limit($limit)
@@ -130,6 +131,7 @@ class NewsService
             'excerpt'     => $a->excerpt,
             'category'    => $a->category,
             'emoji'       => $a->emoji,
+            'thumbnail_url'=> $a->thumbnail_url,
             'author'      => $a->author_name,
             'initials'    => $a->author_initials,
             'date'        => $a->formatted_date,

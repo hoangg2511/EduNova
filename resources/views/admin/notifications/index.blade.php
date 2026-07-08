@@ -277,7 +277,7 @@
                     <select x-model="broadcastForm.target_role"
                         class="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300">
                         <option value="student">Học viên</option>
-                        <option value="instructor">Giảng viên</option>
+                        <!-- <option value="instructor">Giảng viên</option> -->
                         <option value="admin">Admin</option>
                     </select>
                 </div>
