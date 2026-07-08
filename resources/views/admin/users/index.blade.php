@@ -6,7 +6,6 @@
     [x-cloak] { display: none !important; }
     .tbl-row { transition: background .15s; }
     .tbl-row:hover { background: #f8fafc; }
-    .avatar-ring { box-shadow: 0 0 0 2px #fff, 0 0 0 4px currentColor; }
 </style>
 @endpush
 
@@ -57,13 +56,12 @@
             <select x-model="filterRole" class="px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 text-slate-700">
                 <option value="">Tất cả vai trò</option>
                 <option value="admin">Admin</option>
-                <option value="student">Học viên</option>
-                <option value="instructor">Giảng viên</option>
+                <option value="user">Học viên</option>
             </select>
             <select x-model="filterPlan" class="px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 text-slate-700">
                 <option value="">Tất cả gói</option>
                 <option value="free">Free</option>
-                <option value="basic">Basic</option>
+                <option value="pro">Pro</option>
                 <option value="premium">Premium</option>
             </select>
             <select x-model="filterStatus" class="px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 text-slate-700">
@@ -102,7 +100,6 @@
                         <th class="px-4 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">Người dùng</th>
                         <th class="px-4 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">Vai trò</th>
                         <th class="px-4 py-3.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">Gói</th>
-                        <!-- <th class="px-4 py-3.5 text-center text-[10px] font-bold uppercase tracking-wider text-slate-400">Tiến độ</th> -->
                         <th class="px-4 py-3.5 text-center text-[10px] font-bold uppercase tracking-wider text-slate-400">Trạng thái</th>
                         <th class="px-4 py-3.5 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">Đăng ký</th>
                         <th class="px-4 py-3.5 text-center text-[10px] font-bold uppercase tracking-wider text-slate-400">Thao tác</th>
@@ -116,8 +113,7 @@
                             </td>
                             <td class="px-4 py-3.5">
                                 <div class="flex items-center gap-3">
-                                    <div class="w-9 h-9 rounded-xl flex items-center justify-center text-sm font-black text-white shrink-0"
-                                        :style="`background:${u.color}`" x-text="u.name[0]"></div>
+                                    <div class="w-9 h-9 rounded-xl flex items-center justify-center text-sm font-black text-white shrink-0 bg-indigo-500" x-text="u.name[0]"></div>
                                     <div>
                                         <p class="text-sm font-bold text-slate-800" x-text="u.name"></p>
                                         <p class="text-xs text-slate-400" x-text="u.email"></p>
@@ -128,29 +124,20 @@
                                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full"
                                     :class="{
                                         'bg-indigo-50 text-indigo-600': u.role === 'admin',
-                                        'bg-emerald-50 text-emerald-600': u.role === 'student',
-                                        'bg-amber-50 text-amber-600': u.role === 'instructor',
+                                        'bg-emerald-50 text-emerald-600': u.role === 'user',
                                     }"
-                                    x-text="{'admin':'Admin','user':'Học viên','instructor':'Giảng viên'}[u.role]">
+                                    x-text="{'admin':'Admin','user':'Học viên'}[u.role] || 'Học viên'">
                                 </span>
                             </td>
                             <td class="px-4 py-3.5">
                                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full"
                                     :class="{
                                         'bg-slate-100 text-slate-500': u.plan === 'free',
-                                        'bg-blue-50 text-blue-600': u.plan === 'basic',
+                                        'bg-blue-50 text-blue-600': u.plan === 'pro',
                                         'bg-violet-50 text-violet-600': u.plan === 'premium',
                                     }"
                                     x-text="u.plan.charAt(0).toUpperCase()+u.plan.slice(1)">
                                 </span>
-                            </td>
-                            <!-- <td class="px-4 py-3.5">
-                                <div class="flex items-center justify-center gap-2">
-                                    <div class="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                        <div class="h-full bg-indigo-500 rounded-full" :style="`width:${u.progress}%`"></div>
-                                    </div>
-                                    <span class="text-[10px] font-bold text-slate-500" x-text="u.progress+'%'"></span> -->
-                                </div>
                             </td>
                             <td class="px-4 py-3.5 text-center">
                                 <button @click="toggleStatus(u)"
@@ -176,7 +163,7 @@
                         </tr>
                     </template>
                     <tr x-show="filteredUsers.length === 0">
-                        <td colspan="8" class="py-16 text-center">
+                        <td colspan="7" class="py-16 text-center">
                             <i data-lucide="users" class="w-10 h-10 text-slate-200 mx-auto mb-3"></i>
                             <p class="text-sm text-slate-400">Không tìm thấy người dùng nào</p>
                         </td>
@@ -223,11 +210,11 @@
                 </button>
             </div>
 
-            {{-- View mode --}}
+            {{-- View mode ── CHỈ đọc từ modalUser.plan / modalUser.subscription
+                 (cùng một nguồn dữ liệu duy nhất trả về từ show()) --}}
             <div x-show="modalMode==='view' && modalUser" class="space-y-4">
                 <div class="flex items-center gap-4">
-                    <div class="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-black text-white"
-                        :style="`background:${modalUser?.color}`" x-text="modalUser?.name[0]"></div>
+                    <div class="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-black text-white bg-indigo-500" x-text="modalUser?.name[0]"></div>
                     <div>
                         <h3 class="text-lg font-black text-slate-900" x-text="modalUser?.name"></h3>
                         <p class="text-sm text-slate-500" x-text="modalUser?.email"></p>
@@ -236,19 +223,30 @@
                 <div class="grid grid-cols-2 gap-3">
                     <div class="bg-slate-50 rounded-xl p-3">
                         <p class="text-[10px] font-bold text-slate-400 uppercase">Vai trò</p>
-                        <p class="text-sm font-bold text-slate-800 mt-1" x-text="{'admin':'Admin','student':'Học viên','instructor':'Giảng viên'}[modalUser?.role]"></p>
+                        <p class="text-sm font-bold text-slate-800 mt-1" x-text="{'admin':'Admin','user':'Học viên'}[modalUser?.role]"></p>
                     </div>
                     <div class="bg-slate-50 rounded-xl p-3">
-                        <p class="text-[10px] font-bold text-slate-400 uppercase">Gói</p>
-                        <p class="text-sm font-bold text-slate-800 mt-1" x-text="modalUser?.plan"></p>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase">Gói đăng ký</p>
+                        <p class="text-sm font-bold text-slate-800 mt-1" x-text="modalUser?.plan?.name"></p>
+                        <p class="text-[11px] text-slate-400" x-text="modalUser?.plan?.formattedPrice"></p>
                     </div>
                     <div class="bg-slate-50 rounded-xl p-3">
-                        <p class="text-[10px] font-bold text-slate-400 uppercase">Tiến độ học</p>
-                        <p class="text-sm font-bold text-indigo-600 mt-1" x-text="modalUser?.progress + '%'"></p>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase">Trạng thái thuê bao</p>
+                        <template x-if="modalUser?.subscription">
+                            <p class="text-sm font-bold mt-1"
+                               :class="modalUser.subscription.isExpiringSoon ? 'text-amber-600' : 'text-emerald-600'"
+                               x-text="modalUser.subscription.isExpiringSoon ? 'Sắp hết hạn' : 'Đang hoạt động'">
+                            </p>
+                        </template>
+                        <template x-if="!modalUser?.subscription">
+                            <p class="text-sm font-bold text-slate-500 mt-1">Gói miễn phí</p>
+                        </template>
                     </div>
                     <div class="bg-slate-50 rounded-xl p-3">
-                        <p class="text-[10px] font-bold text-slate-400 uppercase">Ngày đăng ký</p>
-                        <p class="text-sm font-bold text-slate-800 mt-1" x-text="modalUser?.joinDate"></p>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase" x-text="modalUser?.subscription?.endsAt ? 'Hết hạn' : 'Ngày đăng ký'"></p>
+                        <p class="text-sm font-bold text-slate-800 mt-1"
+                           x-text="modalUser?.subscription?.endsAt ?? modalUser?.joinDate">
+                        </p>
                     </div>
                 </div>
                 <button @click="openModal('edit', modalUser)" class="w-full py-2.5 bg-slate-900 text-white rounded-xl text-sm font-semibold hover:bg-slate-700 transition-all">
@@ -266,7 +264,7 @@
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-slate-700 mb-1.5">Email <span class="text-rose-500">*</span></label>
-                        <input x-model="form.email" type="email" placeholder="email@example.com"
+                        <input x-model="form.email" type="email" placeholder="email@example.com" disabled
                             class="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
                     </div>
                 </div>
@@ -279,20 +277,22 @@
                     <div>
                         <label class="block text-xs font-bold text-slate-700 mb-1.5">Vai trò</label>
                         <select x-model="form.role" class="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300">
-                            <option value="student">Học viên</option>
-                            <option value="instructor">Giảng viên</option>
+                            <option value="user">Học viên</option>
                             <option value="admin">Admin</option>
                         </select>
                     </div>
-                    <div>
-                        <label class="block text-xs font-bold text-slate-700 mb-1.5">Gói đăng ký</label>
+                    <div x-show="modalMode === 'add'">
+                        <label class="block text-xs font-bold text-slate-700 mb-1.5">Gói đăng ký ban đầu</label>
                         <select x-model="form.plan" class="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300">
                             <option value="free">Free</option>
-                            <option value="basic">Basic</option>
+                            <option value="pro">Pro</option>
                             <option value="premium">Premium</option>
                         </select>
                     </div>
                 </div>
+                <p x-show="modalMode === 'edit'" class="text-xs text-slate-400">
+                    Để đổi gói đăng ký, vào trang <a href="{{ route('admin.subscriptions.index') }}" class="text-indigo-600 font-semibold hover:underline">Quản lý thuê bao</a>.
+                </p>
                 <div class="flex gap-3 pt-2">
                     <button @click="modalOpen=false" class="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-all">Hủy</button>
                     <button @click="saveUser()" :disabled="!form.name || !form.email"
@@ -329,11 +329,12 @@ function userManager() {
         loading: false,
 
         modalOpen: false, modalMode: 'add', modalUser: null,
-        form: { name:'', email:'', password:'', role:'student', plan:'free' },
+        form: { name:'', email:'', password:'', role:'user', plan:'free' },
         toast: { show:false, msg:'', type:'success' },
 
         // ── Computed ───────────────────────────────────────────────────────
         get paginatedUsers() { return this.users; },   // đã phân trang server-side
+        get filteredUsers() { return this.users; },
 
         // ── Init ───────────────────────────────────────────────────────────
         async init() {
@@ -394,12 +395,24 @@ function userManager() {
         },
 
         // ── Modal ──────────────────────────────────────────────────────────
-        openModal(mode, user = null) {
+        async openModal(mode, user = null) {
             this.modalMode = mode;
-            this.modalUser = user;
-            this.form = user
-                ? { name: user.name, email: user.email, role: user.role, plan: user.plan, password: '' }
-                : { name:'', email:'', password:'', role:'student', plan:'free' };
+            this.modalUser = null;
+            if (mode === 'view' && user) {
+                try {
+                    // show() trả về { user: { ..., plan: {...}, subscription: {...} } }
+                    const res = await this.api(`/admin/users/${user.id}`);
+                    this.modalUser = res.user;
+                } catch (e) {
+                    this.showToast(e.message, 'error');
+                    return;
+                }
+            } else {
+                this.modalUser = user;
+                this.form = user
+                    ? { name: user.name, email: user.email, role: user.role, plan: user.plan ?? 'free', password: '' }
+                    : { name:'', email:'', password:'', role:'user', plan:'free' };
+            }
             this.modalOpen = true;
             this.$nextTick(() => lucide.createIcons());
         },
@@ -408,16 +421,14 @@ function userManager() {
         async saveUser() {
             try {
                 if (this.modalMode === 'edit') {
-                    const payload = { name: this.form.name, email: this.form.email, role: this.form.role, plan: this.form.plan };
+                    const payload = { name: this.form.name, email: this.form.email, role: this.form.role };
                     const res = await this.api(`/admin/users/${this.modalUser.id}`, 'PUT', payload);
-                    // Cập nhật local array để không cần fetch lại
                     const idx = this.users.findIndex(u => u.id === this.modalUser.id);
                     if (idx !== -1) this.users.splice(idx, 1, res.user);
                     this.showToast(res.message);
                 } else {
                     const res = await this.api('/admin/users', 'POST', this.form);
                     this.showToast(res.message);
-                    // Reload trang đầu để thấy user mới
                     this.page = 1;
                     await this.fetchUsers();
                 }
@@ -465,7 +476,7 @@ function userManager() {
                 this.users = this.users.filter(u => !this.selected.includes(u.id));
                 this.totalItems -= this.selected.length;
                 this.selected = [];
-                this.showToast(res.message, 'error');
+                this.showToast(res.message);
             } catch (e) {
                 this.showToast(e.message, 'error');
             }

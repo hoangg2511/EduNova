@@ -42,6 +42,26 @@ class NewsArticle extends Model
 
     // ── Scopes ──────────────────────────────────────────────────
 
+    public function scopeDueToPublish(Builder $query): Builder
+    {
+        return $query->where('status', 'scheduled')
+                    ->whereNotNull('scheduled_at')
+                    ->where('scheduled_at', '<=', now());
+    }
+
+    public static function publishDueScheduled(): int
+    {
+        $count = 0;
+        static::dueToPublish()->get()->each(function (self $article) use (&$count) {
+            $article->update([
+                'status'       => 'published',
+                'published_at' => $article->published_at ?? $article->scheduled_at,
+            ]);
+            $count++;
+        });
+        return $count;
+    }
+
     public function scopePublished(Builder $query): Builder
     {
         return $query->where('status', 'published')

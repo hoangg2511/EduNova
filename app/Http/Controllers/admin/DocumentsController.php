@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Document;
+use App\Services\AIAgentService;
+use App\Services\SupabaseService;
 use App\Services\WalletService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,8 +15,11 @@ use Illuminate\Support\Facades\Log;
 
 class DocumentsController extends Controller
 {
-    public function __construct(private WalletService $walletService)
-    {
+    public function __construct(
+        private WalletService $walletService,
+        private AIAgentService $aiAgent,
+        private SupabaseService $supabase, // ✅ MỚI
+    ) {
     }
 
     // ─── Page ─────────────────────────────────────────────────────────────────
@@ -50,7 +55,6 @@ class DocumentsController extends Controller
             ->get()
             ->map(fn (Document $d) => $this->formatDoc($d));
 
-        // Danh sách subject (tag names) cho dropdown filter
         $subjects = DB::table('tags')
             ->join('document_tag', 'tags.id', '=', 'document_tag.tag_id')
             ->distinct()
@@ -65,12 +69,11 @@ class DocumentsController extends Controller
     }
 
     // ─── API: stats ────────────────────────────────────────────────────────────
-
+    // (giữ nguyên toàn bộ, không đổi)
     public function stats(): JsonResponse
     {
         $total = Document::count();
 
-        // Phân loại theo type (qua pivot document_type)
         $typeStats = DB::table('types')
             ->join('document_type', 'types.id', '=', 'document_type.type_id')
             ->select('types.name as type', DB::raw('count(distinct document_type.document_id) as count'))
@@ -89,7 +92,6 @@ class DocumentsController extends Controller
                 },
             ]);
 
-        // Phân loại theo subject (tag)
         $rawSubjects = DB::table('tags')
             ->join('document_tag', 'tags.id', '=', 'document_tag.tag_id')
             ->select('tags.name as subject', DB::raw('count(distinct document_tag.document_id) as count'))
@@ -104,7 +106,6 @@ class DocumentsController extends Controller
             'pct'     => round($row->count / $maxCount * 100),
         ]);
 
-        // Top 5 tải nhiều nhất
         $topDocs = Document::with(['uploader', 'types', 'tags'])
             ->approved()
             ->orderByDesc('downloads')
@@ -112,7 +113,6 @@ class DocumentsController extends Controller
             ->get()
             ->map(fn (Document $d) => $this->formatDoc($d));
 
-        // Tình trạng xét duyệt
         $counts = Document::select('status', DB::raw('count(*) as count'))
             ->groupBy('status')
             ->pluck('count', 'status');
@@ -126,8 +126,8 @@ class DocumentsController extends Controller
         return response()->json(compact('typeStats', 'subjectStats', 'topDocs', 'approvalStats'));
     }
 
-    // ─── API: approve ──────────────────────────────────────────────────────────
-
+    // ─── API: approve / reject / aiReview ───────────────────────────────────────
+    // (giữ nguyên toàn bộ, không đổi)
     public function approve(Request $request, Document $document): JsonResponse
     {
         if (! $document->isPending()) {
@@ -135,23 +135,20 @@ class DocumentsController extends Controller
         }
 
         $document->approve($request->user()->id);
-        
+
         $this->walletService->rewardDocumentApproved(
             $document->uploader,
             $document,
             $document->name
         );
 
-        // Fresh + eager load để formatDoc đúng
         $document->load(['uploader', 'types', 'tags']);
 
         return response()->json([
-            'message' => 'Đã phê duyệt: ' . $document->name,   // ← name, không phải title
+            'message' => 'Đã phê duyệt: ' . $document->name,
             'doc'     => $this->formatDoc($document),
         ]);
     }
-
-    // ─── API: reject ───────────────────────────────────────────────────────────
 
     public function reject(Request $request, Document $document): JsonResponse
     {
@@ -159,7 +156,6 @@ class DocumentsController extends Controller
             return response()->json(['message' => 'Tài liệu không ở trạng thái chờ duyệt'], 422);
         }
 
-        // Blade gửi key 'rejection_reason' (khớp $fillable)
         $request->validate(['rejection_reason' => 'nullable|string|max:500']);
 
         $document->reject($request->user()->id, $request->input('rejection_reason'));
@@ -169,6 +165,164 @@ class DocumentsController extends Controller
         return response()->json([
             'message' => 'Đã từ chối: ' . $document->name,
             'doc'     => $this->formatDoc($document),
+        ]);
+    }
+
+    public function aiReview(Document $document): JsonResponse
+    {
+        if (! $document->isPending()) {
+            return response()->json(['message' => 'Tài liệu không ở trạng thái chờ duyệt'], 422);
+        }
+
+        $document->load(['uploader', 'types', 'tags']);
+
+        $decision = $this->askAiToReview($document);
+
+        if (! $decision) {
+            return response()->json([
+                'message' => 'AI không phản hồi hợp lệ, vui lòng xét duyệt thủ công.',
+            ], 422);
+        }
+
+        if ($decision['decision'] === 'approve') {
+            $document->approve(auth()->id());
+            $this->walletService->rewardDocumentApproved(
+                $document->uploader,
+                $document,
+                $document->name
+            );
+        } else {
+            $document->reject(auth()->id(), $decision['reason'] ?? 'AI phát hiện dấu hiệu không phù hợp.');
+        }
+
+        $document->load(['uploader', 'types', 'tags']);
+
+        $label = $decision['decision'] === 'approve' ? 'phê duyệt' : 'từ chối';
+
+        return response()->json([
+            'message'       => "AI đã tự động {$label}: {$document->name}",
+            'ai_decision'   => $decision['decision'],
+            'ai_reason'     => $decision['reason'] ?? null,
+            'ai_confidence' => $decision['confidence'] ?? null,
+            'doc'           => $this->formatDoc($document),
+        ]);
+    }
+
+    private function askAiToReview(Document $document): ?array
+    {
+        $type    = $document->types->first()?->name ?? 'Không rõ';
+        $subject = $document->tags->first()?->name ?? 'Không rõ';
+
+        $system = <<<PROMPT
+Bạn là trợ lý kiểm duyệt tài liệu học tập cho nền tảng giáo dục EduNova.
+Dựa vào thông tin (metadata) của tài liệu được cung cấp, hãy quyết định
+tài liệu nên được PHÊ DUYỆT (approve) hay TỪ CHỐI (reject).
+
+Từ chối nếu: tiêu đề/mô tả không liên quan đến học tập, mô tả quá sơ sài
+hoặc rỗng, nghi ngờ vi phạm bản quyền, tên file/mô tả chứa nội dung
+không phù hợp, hoặc rõ ràng là spam/quảng cáo.
+Nếu không có dấu hiệu vi phạm rõ ràng, hãy phê duyệt.
+
+CHỈ trả lời bằng đúng 1 object JSON, không thêm bất kỳ chữ nào khác,
+không markdown, không giải thích ngoài JSON. Định dạng bắt buộc:
+{"decision": "approve" hoặc "reject", "reason": "lý do ngắn gọn bằng tiếng Việt (tối đa 200 ký tự)", "confidence": số nguyên 0-100}
+PROMPT;
+
+        $prompt = "Tên tài liệu: {$document->name}\n"
+            . "Mô tả: " . ($document->description ?: 'Không có mô tả') . "\n"
+            . "Loại file: {$type}\n"
+            . "Môn học: {$subject}\n"
+            . "Tác giả: " . ($document->uploader?->name ?? 'Ẩn danh');
+
+        $raw = $this->aiAgent->requestOllama($prompt, $system);
+
+        return $this->parseAiDecision($raw);
+    }
+
+    private function parseAiDecision(?string $raw): ?array
+    {
+        if (! $raw) {
+            return null;
+        }
+
+        if (! preg_match('/\{.*\}/s', $raw, $m)) {
+            Log::warning('AI review: không tìm thấy JSON trong phản hồi', ['raw' => $raw]);
+            return null;
+        }
+
+        $data = json_decode($m[0], true);
+
+        if (! is_array($data) || empty($data['decision'])) {
+            Log::warning('AI review: JSON không hợp lệ', ['raw' => $raw]);
+            return null;
+        }
+
+        $decision = strtolower(trim((string) $data['decision']));
+
+        if (! in_array($decision, ['approve', 'reject'], true)) {
+            return null;
+        }
+
+        return [
+            'decision'   => $decision,
+            'reason'     => isset($data['reason']) ? mb_substr((string) $data['reason'], 0, 500) : null,
+            'confidence' => isset($data['confidence']) ? (int) $data['confidence'] : null,
+        ];
+    }
+
+    // ─── API: MỚI — lấy file thật qua SupabaseService ───────────────────────────
+
+    /**
+     * GET /admin/documents/{document}/file
+     *
+     * Không trả trực tiếp path lưu trong DB (doc.url) cho frontend — path đó
+     * chỉ là đường dẫn tương đối bên trong bucket Supabase, có thể không truy
+     * cập công khai được (bucket private) hoặc lộ cấu trúc lưu trữ nội bộ.
+     *
+     * Thay vào đó, route này gọi SupabaseService để tạo signed URL tạm thời
+     * (hết hạn sau vài phút) rồi redirect (302) trình duyệt sang đó — admin
+     * chỉ cần mở đúng route này, không cần biết bucket/path thật.
+     */
+    public function viewFile(Document $document)
+    {
+        if (empty($document->url)) {
+            abort(404, 'Tài liệu này không có file đính kèm.');
+        }
+
+        try {
+            $signedUrl = $this->supabase->getSignedUrl('documents', $document->url, 300); // hết hạn sau 5 phút
+        } catch (\Throwable $e) {
+            Log::error('DocumentsController::viewFile - Lỗi khi tạo signed URL', [
+                'document_id' => $document->id,
+                'error'       => $e->getMessage(),
+            ]);
+            abort(500, 'Không thể tải file từ kho lưu trữ.');
+        }
+
+        // getSignedUrl() trả về chuỗi lỗi thô (response body) nếu Supabase từ chối request,
+        // nên phải kiểm tra chắc chắn đó là URL hợp lệ trước khi redirect.
+        if (! $signedUrl || ! str_starts_with($signedUrl, 'http')) {
+            Log::error('DocumentsController::viewFile - Supabase không trả về URL hợp lệ', [
+                'document_id' => $document->id,
+                'response'    => $signedUrl,
+            ]);
+            abort(502, 'Kho lưu trữ tài liệu hiện không phản hồi. Vui lòng thử lại sau.');
+        }
+
+        return redirect()->away($signedUrl);
+    }
+
+    /**
+     * POST /admin/documents/{document}/view
+     * Tăng số lượt xem (khác với downloads — đây là số lần admin mở preview).
+     */
+    public function incrementView(Document $document): JsonResponse
+    {
+        $document->increment('views');
+
+        return response()->json([
+            'message' => 'Đã ghi nhận lượt xem',
+            'views'   => $document->views,
         ]);
     }
 
@@ -187,42 +341,37 @@ class DocumentsController extends Controller
 
     // ─── Private helpers ───────────────────────────────────────────────────────
 
-    /**
-     * Chuyển Document sang array gửi cho Alpine.
-     * Tất cả key phải khớp với những gì blade dùng:
-     *   doc.name, doc.author, doc.subject, doc.type, doc.upload_date,
-     *   doc.icon, doc.color, doc.url, doc.size, doc.downloads, doc.rate,
-     *   doc.status, doc.rejection_reason, doc.reviewed_at
-     */
     private function formatDoc(Document $d): array
     {
-        // types và tags phải được eager load trước khi gọi hàm này
-        $type    = $d->types->first()?->name;   // vd: 'pdf'
-        $subject = $d->tags->first()?->name;    // vd: 'Toán học'
+        $type    = $d->types->first()?->name;
+        $subject = $d->tags->first()?->name;
 
         return [
             'id'               => $d->id,
-            'name'             => $d->name,                         // cột name
+            'name'             => $d->name,
             'description'      => $d->description,
-            'url'              => $d->url,                          // cột url ($fillable)
-            'author'           => $d->uploader?->name ?? 'Ẩn danh',// uploader relationship
-            'subject'          => $subject,                         // tags pivot
-            'type'             => $type,                            // types pivot
-            'size'             => $d->size,                         // cột size ($fillable)
-            'downloads'        => (int) ($d->downloads ?? 0),       // cột downloads ($fillable)
-            'rate'             => (float) ($d->rate ?? 0),          // cột rate ($fillable)
+            // ✅ Trỏ về route nội bộ thay vì raw path trong DB —
+            //    route này sẽ tự gọi SupabaseService để lấy signed URL thật khi được mở.
+            'url'              => $d->url ? route('admin.documents.viewFile', $d->id) : null,
+            'author'           => $d->uploader?->name ?? 'Ẩn danh',
+            'subject'          => $subject,
+            'type'             => $type,
+            'size'             => $d->size,
+            'downloads'        => (int) ($d->downloads ?? 0),
+            'views'            => (int) ($d->views ?? 0), // ✅ MỚI
+            'rate'             => (float) ($d->rate ?? 0),
             'status'           => $d->status,
-            'rejection_reason' => $d->rejection_reason,             // cột rejection_reason ($fillable)
+            'rejection_reason' => $d->rejection_reason,
             'reviewed_at'      => $this->safeFormatDate($d->reviewed_at, 'd/m/Y H:i'),
-            'upload_date'      => $this->safeFormatDate($d->created_at, 'd/m/Y'),  // blade dùng doc.upload_date
-            'icon'             => match ($type) {                   // thay thế getIconAttribute()
+            'upload_date'      => $this->safeFormatDate($d->created_at, 'd/m/Y'),
+            'icon'             => match ($type) {
                 'pdf'  => 'file-text',
                 'docx' => 'file',
                 'pptx' => 'presentation',
                 'xlsx' => 'table-2',
                 default => 'file',
             },
-            'color'            => match ($type) {                   // thay thế getColorAttribute()
+            'color'            => match ($type) {
                 'pdf'  => '#ef4444',
                 'docx' => '#3b82f6',
                 'pptx' => '#f59e0b',
@@ -232,19 +381,14 @@ class DocumentsController extends Controller
         ];
     }
 
-    /**
-     * Safely format a date-like value (DateTime or string). Returns null if empty.
-     */
     private function safeFormatDate($value, string $format): ?string
     {
         if (empty($value)) return null;
 
-        // If it's a DateTime instance (Carbon), use format directly
         if ($value instanceof \DateTimeInterface) {
             return $value->format($format);
         }
 
-        // Otherwise try to parse as string timestamp
         $ts = strtotime((string) $value);
         return $ts ? date($format, $ts) : null;
     }
@@ -255,7 +399,6 @@ class DocumentsController extends Controller
         $pending = Document::pending()->count();
         $totalDl = (int) Document::sum('downloads');
 
-        // size lưu dạng string "4.2 MB" nên parse để tính tổng
         $totalBytes = Document::pluck('size')
             ->sum(fn ($s) => $this->parseSizeBytes($s));
 
@@ -294,5 +437,31 @@ class DocumentsController extends Controller
         if ($bytes >= 1_048_576)     return round($bytes / 1_048_576, 1)     . ' MB';
         if ($bytes >= 1_024)         return round($bytes / 1_024, 1)          . ' KB';
         return $bytes . ' B';
+    }
+
+    public function toggleVisibility(Document $document): JsonResponse
+    {
+        if (! $document->isApproved() && ! $document->isHidden()) {
+            return response()->json([
+                'message' => 'Chỉ có thể ẩn/hiện tài liệu đã được phê duyệt.',
+            ], 422);
+        }
+
+        $document->isHidden() ? $document->unhide() : $document->hide();
+
+        $document->load(['uploader', 'types', 'tags']);
+
+        $label = $document->isHidden() ? 'ẩn' : 'hiển thị';
+
+        Log::info('Admin toggled document visibility (status)', [
+            'document_id' => $document->id,
+            'status'      => $document->status,
+            'admin_id'    => auth()->id(),
+        ]);
+
+        return response()->json([
+            'message' => "Đã chuyển tài liệu sang trạng thái {$label}: {$document->name}",
+            'doc'     => $this->formatDoc($document),
+        ]);
     }
 }

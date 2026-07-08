@@ -1,4 +1,4 @@
-    <?php
+<?php
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\admin\DashboardController;
@@ -26,12 +26,16 @@ Route::middleware(['auth', 'is_admin'])->prefix('admin')->name('admin.')->group(
     // Per-document actions
     Route::patch('/documents/{document}/approve',       [DocumentsController::class, 'approve'])->name('documents.approve');
     Route::patch('/documents/{document}/reject',        [DocumentsController::class, 'reject'])->name('documents.reject');
+    Route::patch('/documents/{document}/ai-review',     [DocumentsController::class, 'aiReview'])->name('documents.aiReview');
     Route::post('/documents/{document}/view',           [DocumentsController::class, 'incrementView'])->name('documents.view');
+    Route::get('/documents/{document}/file',            [DocumentsController::class, 'viewFile'])->name('documents.viewFile'); 
     Route::delete('/documents/{document}',              [DocumentsController::class, 'destroy'])->name('documents.destroy');
+    Route::patch('/documents/{document}/toggle-visibility', [DocumentsController::class, 'toggleVisibility'])->name('documents.toggleVisibility');
 
     
     Route::get('/users', [UsersController::class, 'index'])->name('users.index');
     Route::get('/users/data', [UsersController::class, 'data'])->name('users.data');
+    Route::get('/users/{user}', [UsersController::class, 'show'])->name('users.show');
     Route::post('/users/bulk-ban',    [UsersController::class, 'bulkBan'])->name('users.bulkBan');
     Route::post('/users/bulk-delete', [UsersController::class, 'bulkDelete'])->name('users.bulkDelete');
     Route::post('/users',                        [UsersController::class, 'store'])->name('users.store');

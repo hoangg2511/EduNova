@@ -105,8 +105,8 @@
         {{-- Plan cards --}}
         <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
             <template x-for="plan in plans" :key="plan.id">
-                <div class="plan-card bg-white rounded-2xl border border-slate-200 p-6"
-                    :class="plan.is_featured ? 'featured' : ''">
+                <div class="plan-card bg-white rounded-2xl border border-slate-200 p-6 relative"
+                    :class="[plan.is_featured ? 'featured' : '', !plan.is_active ? 'opacity-80' : '']">
 
                     {{-- Header --}}
                     <div class="flex items-start justify-between mb-4">
@@ -121,6 +121,11 @@
                             <p class="text-xs text-slate-500" x-text="'/' + plan.slug"></p>
                         </div>
                         <div class="flex items-center gap-2">
+                            <div x-show="!plan.is_active"
+                                class="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-500">
+                                <i data-lucide="eye-off" class="w-3 h-3"></i>
+                                <span>Đã tắt</span>
+                            </div>
                             {{-- Active toggle --}}
                             <div class="toggle-track" :class="plan.is_active ? 'on' : ''"
                                 @click="toggleActive(plan)" title="Bật/tắt gói">
@@ -200,14 +205,6 @@
                         </div>
                     </div>
 
-                    {{-- Inactive overlay --}}
-                    <div x-show="!plan.is_active"
-                        class="absolute inset-0 bg-white/70 rounded-2xl flex items-center justify-center backdrop-blur-[1px]">
-                        <div class="text-center">
-                            <i data-lucide="eye-off" class="w-6 h-6 text-slate-400 mx-auto mb-1"></i>
-                            <p class="text-xs font-bold text-slate-500">Đã tắt</p>
-                        </div>
-                    </div>
                 </div>
             </template>
         </div>
@@ -563,7 +560,25 @@
                         class="w-8 h-8 rounded-lg border border-slate-200 cursor-pointer p-0.5">
                 </div>
             </div>
-
+            {{-- Áp dụng ngay lập tức cho học viên đang dùng gói --}}
+            <div x-show="editingPlan" x-cloak
+                class="flex items-center justify-between gap-4 p-3.5 bg-amber-50 border border-amber-200 rounded-xl">
+                <div class="flex items-start gap-2.5">
+                    <i data-lucide="zap" class="w-4 h-4 text-amber-500 mt-0.5 shrink-0"></i>
+                    <div>
+                        <p class="text-xs font-bold text-amber-800">Áp dụng ngay lập tức</p>
+                        <p class="text-[10px] text-amber-600 mt-0.5">
+                            Đồng bộ hạn mức mới cho
+                            <span class="font-bold" x-text="(editingPlan?.subscriber_count ?? 0) + ' học viên'"></span>
+                            đang dùng gói này. Nếu tắt, thay đổi chỉ áp dụng cho lượt đăng ký/gia hạn kế tiếp.
+                        </p>
+                    </div>
+                </div>
+                <div class="toggle-track shrink-0" :class="planForm.apply_now ? 'on' : ''"
+                    @click="planForm.apply_now = !planForm.apply_now">
+                    <div class="toggle-thumb"></div>
+                </div>
+            </div>
             <div class="flex gap-3 pt-2">
                 <button @click="planModalOpen=false"
                     class="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-all">
@@ -704,6 +719,7 @@ function subscriptionManager() {
             name: '', slug: '', description: '', price: 0, duration_days: 30,
             token_limit: 0, knowledge_limit: 0, download_limit: 0,
             features: [''], is_featured: false, is_active: true, color: '#6366f1',
+            apply_now: false,
         },
 
         // Form: grant
@@ -779,12 +795,14 @@ function subscriptionManager() {
                 this.planForm = {
                     ...plan,
                     features: [...(plan.features ?? [''])],
+                    apply_now: false, // luôn tắt mặc định khi mở modal sửa, admin phải chủ động bật
                 };
             } else {
                 this.planForm = {
                     name: '', slug: '', description: '', price: 0, duration_days: 30,
                     token_limit: 0, knowledge_limit: 0, download_limit: 0,
                     features: [''], is_featured: false, is_active: true, color: '#6366f1',
+                    apply_now: false,
                 };
             }
             this.planModalOpen = true;

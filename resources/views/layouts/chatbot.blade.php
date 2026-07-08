@@ -341,7 +341,7 @@
             formatDroppedContent(cardData) {
                 // Level 1: Entire Roadmap (Toàn bộ)
                 if (cardData && cardData.level === 1 && Array.isArray(cardData.sections)) {
-                    let message = `📚 LỘ TRÌNH HỌC: ${cardData.title}\n`;
+                    let message = ` LỘ TRÌNH HỌC: ${cardData.title}\n`;
                     message += `${cardData.description || ''}\n\n`;
                     message += `CÁC CHỦ ĐỀ CHÍNH:\n`;
                     cardData.sections.forEach((sec, i) => {
@@ -352,7 +352,7 @@
                             message += `   Ví dụ: ${sample}${sec.items.length > 3 ? ', ...' : ''}\n`;
                         }
                     });
-                    message += `\n📋 Yêu cầu: Tóm tắt lộ trình này thành kế hoạch học tập 4-6 tuần, chia rõ từng tuần và mục tiêu cụ thể.`;
+                    message += `\n Yêu cầu: Tóm tắt lộ trình này thành kế hoạch học tập 4-6 tuần, chia rõ từng tuần và mục tiêu cụ thể.`;
                     return message.trim();
                 }
 
@@ -366,41 +366,41 @@
                         if (it.content) message += ` — ${it.content.replace(/\n/g, ' ').slice(0, 150)}`;
                         message += `\n`;
                     });
-                    message += `\n📋 Yêu cầu: Tóm tắt các mục trên hoặc tạo hướng dẫn chi tiết để học.`;
+                    message += `\nYêu cầu: Tóm tắt các mục trên hoặc tạo hướng dẫn chi tiết để học.`;
                     return message.trim();
                 }
 
                 // Level 3: Single Item (Nội dung con)
                 if (cardData && cardData.level === 3) {
-                    let message = `📝 NỘI DUNG: ${cardData.title}\n`;
+                    let message = ` NỘI DUNG: ${cardData.title}\n`;
                     if (cardData.section) message += `Chủ đề: ${cardData.section}\n`;
                     if (cardData.subsection) message += `Phân nhánh: ${cardData.subsection}\n`;
                     message += `\n`;
                     if (cardData.content) message += `${cardData.content}\n`;
-                    if (cardData.formula) message += `\n🔢 CÔNG THỨC:\n${cardData.formula}\n`;
-                    if (cardData.example) message += `\n💡 VÍ DỤ:\n${cardData.example}\n`;
-                    message += `\n📋 Yêu cầu: Giải thích, mở rộng hoặc cung cấp thêm ví dụ cho nội dung này.`;
+                    if (cardData.formula) message += `\n CÔNG THỨC:\n${cardData.formula}\n`;
+                    if (cardData.example) message += `\n VÍ DỤ:\n${cardData.example}\n`;
+                    message += `\n Yêu cầu: Giải thích, mở rộng hoặc cung cấp thêm ví dụ cho nội dung này.`;
                     return message.trim();
                 }
 
                 // Legacy: Array with items (section from old format)
                 if (cardData && Array.isArray(cardData.items)) {
-                    let message = `📌 CHỦĐỀ: ${cardData.title}\n`;
+                    let message = ` CHỦĐỀ: ${cardData.title}\n`;
                     if (cardData.description) message += `${cardData.description}\n`;
                     message += `\nCÁC MỤC CON:\n`;
                     cardData.items.forEach((it, i) => {
                         message += `${i + 1}. ${it.title}${it.content ? ' — ' + it.content.replace(/\n/g, ' ').slice(0, 150) : ''}\n`;
                     });
-                    message += `\n📋 Yêu cầu: Tóm tắt hoặc tạo hướng dẫn.`;
+                    message += `\nYêu cầu: Tóm tắt hoặc tạo hướng dẫn.`;
                     return message.trim();
                 }
 
                 // Fallback: Single card
-                let message = `📝 ${cardData.title || ''}\n`;
+                let message = `${cardData.title || ''}\n`;
                 if (cardData.topic) message += `(Chủ đề: ${cardData.topic})\n`;
                 if (cardData.content) message += `\n${cardData.content}\n`;
-                if (cardData.formula) message += `\n🔢 Công thức: ${cardData.formula}\n`;
-                if (cardData.example) message += `\n💡 Ví dụ: ${cardData.example}\n`;
+                if (cardData.formula) message += `\nCông thức: ${cardData.formula}\n`;
+                if (cardData.example) message += `\nVí dụ: ${cardData.example}\n`;
                 return message.trim();
             },
 
@@ -414,16 +414,15 @@
 
                 // ── Kiểm tra token trên FE trước (chỉ với chat thường) ──────────
                 if (!activeTag && this.tokenLimit <= 0) {
-                    // Banner "Hết token chat" ở trên đã hiển thị nút đổi coin,
-                    // ở đây chỉ cần chặn gửi và nhắc lại bằng toast.
                     showToast('Bạn đã hết token chat. Hãy đổi coin để nạp thêm.', 'warning');
                     return;
                 }
 
                 this.messages.push({ role: 'user', content: text });
-                this.input       = '';
-                this.selectedTag = null;
-                this.loading     = true;
+                this.input   = '';
+                this.loading = true;
+                // ⚠ KHÔNG reset selectedTag ở đây nữa — chỉ reset sau khi biết AI đã "done" hay vẫn "ask"
+                // (xem xử lý ở cuối hàm, dựa trên header X-Chat-Tag-Status)
 
                 this.$nextTick(() => { this.scrollBottom(); lucide.createIcons(); });
                 const ta = this.$el.querySelector('textarea');
@@ -442,7 +441,6 @@
                     this.$nextTick(() => this.scrollBottom());
                 }
 
-                // Snapshot token trước để tính delta sau
                 const tokenBefore = this.tokenLimit;
 
                 try {
@@ -460,13 +458,16 @@
                         throw new Error(errorBody || 'Lỗi server');
                     }
 
+                    // ← Đọc trạng thái tag ngay khi có header, trước khi đọc hết stream
+                    const tagStatus = response.headers.get('X-Chat-Tag-Status'); // 'ask' | 'done' | 'error' | null
+
                     const reader = response.body?.getReader();
                     if (!reader) throw new Error('Không hỗ trợ streaming.');
 
                     this.messages[assistantIndex].content = '';
 
                     const decoder = new TextDecoder();
-                    let   done    = false;
+                    let   done      = false;
                     let   fullReply = '';
 
                     while (!done) {
@@ -480,23 +481,32 @@
                         }
                     }
 
-                    // ── Cập nhật tokenLimit trên FE sau khi stream xong ────────
                     if (!activeTag) {
                         const used = Math.ceil((text.length + fullReply.length) / 4);
                         this.tokenLimit = Math.max(0, this.tokenLimit - used);
                     }
 
-                    if (activeTag === 'create_flashcard') {
-                        window.dispatchEvent(new CustomEvent('chatbot:flashcard-created'));
+                    // ── Quyết định có giữ tag hay reset, dựa trên tagStatus ──────────
+                    if (activeTag) {
+                        if (tagStatus === 'ask') {
+                            // AI vẫn cần thêm thông tin — GIỮ nguyên selectedTag để người dùng trả lời tiếp
+                            showToast('AI cần thêm thông tin, hãy trả lời câu hỏi ở trên nhé.', 'warning');
+                        } else {
+                            // Đã tạo xong (hoặc lỗi DB) — kết thúc phiên tag này
+                            this.selectedTag = null;
+                            if (activeTag === 'create_flashcard' && tagStatus === 'done') {
+                                window.dispatchEvent(new CustomEvent('chatbot:flashcard-created'));
+                            }
+                        }
                     }
 
                 } catch (err) {
-                    // Nếu server báo hết token → sync lại FE
                     if (err.message?.includes('hết token')) {
                         this.tokenLimit = 0;
                     }
                     const msg = err instanceof Error ? err.message : 'Lỗi khi nhận phản hồi.';
                     this.messages[assistantIndex].content = '⚠️ ' + msg;
+                    // Lỗi mạng/server: không reset tag, để người dùng có thể bấm gửi lại mà không phải chọn lại tag
                 } finally {
                     this.loading = false;
                     this.$nextTick(() => { this.scrollBottom(); lucide.createIcons(); });

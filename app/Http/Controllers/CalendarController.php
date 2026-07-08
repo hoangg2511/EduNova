@@ -6,12 +6,16 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
-use App\Http\Controllers\NotificationController;
 use App\Models\Event;
 use App\Models\TypeEvent;
+use App\Services\NotificationService;
 
 class CalendarController extends Controller
 {
+    public function __construct(private NotificationService $notificationService)
+    {
+    }
+
     public function index()
     {
         if (!auth()->check()) {
@@ -27,7 +31,7 @@ class CalendarController extends Controller
 
         $eventTypes = TypeEvent::all();
 
-        NotificationController::syncDueEventNotifications(auth()->id());
+        $this->notificationService->syncDueEventNotifications(auth()->id());
         return view('user.calendars.index', compact('calendarEvents', 'eventTypes'));
     }
 

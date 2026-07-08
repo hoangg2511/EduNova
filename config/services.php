@@ -55,4 +55,8 @@ return [
     'firebase' => [
         'credentials' => env('FIREBASE_CREDENTIALS'),
     ],
+    'ollama'=>[
+        'api_url' => env('OLLAMA_API_URL', 'http://localhost:11434/api/generate'),
+        'model' => env('OLLAMA_MODEL', 'llama3.1:8b'),
+    ],
 ];

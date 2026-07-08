@@ -801,28 +801,12 @@ function fcApp(config) {
 
         /* ── init ── */
         init() {
-            // 1. Lấy dữ liệu từ localStorage
-            const saved = localStorage.getItem('edunova_decks');
-            let loadedDecks = null;
-            console.log('Flashcards data:', config.decks);
-            console.log('Active Deck ID:', this.activeDeckId);
-            console.log('Streak Days:', this.streakDays);
-            if (saved && saved !== 'undefined' && saved !== '[]') {
-                try {
-                    loadedDecks = JSON.parse(saved);
-                } catch (e) {
-                    // Vẫn giữ lại error log để debug khi có lỗi cú pháp JSON nghiêm trọng
-                    console.error("Lỗi parse JSON:", e);
-                }
-            }
-
-            // 2. Quyết định chọn dữ liệu: Ưu tiên dữ liệu từ LocalStorage
-            if (loadedDecks && loadedDecks.length > 0) {
-                this.decks = loadedDecks;
-            } else {
-                this.decks = config.decks || [];
-                this.persist(); // Đồng bộ lại vào LocalStorage
-            }
+            // Server luôn là nguồn dữ liệu chuẩn (đã bao gồm deck do chatbot AI vừa tạo).
+            // localStorage chỉ dùng để cache cho optimistic UI (star, status...),
+            // KHÔNG được ưu tiên hơn dữ liệu server, nếu không deck mới sẽ bị
+            // cache cũ "che mất" cho tới khi user xoá localStorage thủ công.
+            this.decks = config.decks || [];
+            this.persist();
 
             window.addEventListener('chatbot:flashcard-created', async () => {
                 this.showToast('Flashcard mới được tạo. Cập nhật dữ liệu...', 'success');
