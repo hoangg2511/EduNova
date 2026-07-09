@@ -22,7 +22,7 @@ class AIAgentService
     public function requestOllama(string $prompt, string $systemPrompt): ?string
     {
         try {
-            $response = Http::timeout(180)->post($this->apiUrl, [
+            $response = Http::timeout(300)->post($this->apiUrl, [
                 'model'  => $this->model,
                 'prompt' => $systemPrompt . "\n\nInput: " . $prompt,
                 'stream' => false
