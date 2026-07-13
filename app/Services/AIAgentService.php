@@ -38,7 +38,7 @@ class AIAgentService
   public function streamOllama(string $prompt, string $systemPrompt, callable $onChunk): void
     {
         try {
-            $client = new \GuzzleHttp\Client(['timeout' => 180, 'http_errors' => false]);
+            $client = new \GuzzleHttp\Client(['timeout' => 300, 'http_errors' => false]);
 
             $response = $client->post($this->apiUrl, [
                 'json' => [
