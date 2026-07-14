@@ -40,6 +40,6 @@ class DatabaseSeeder extends Seeder
         $this->call(QuestionSeeder::class);
         $this->call(UserSeeder::class);
         $this->call(WalletConfigSeeder::class);
-        
+        $this->call(TypeEventSeeder::class);
     }
 }
