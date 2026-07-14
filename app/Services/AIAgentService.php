@@ -42,7 +42,7 @@ class AIAgentService
         try {
             $client = new \GuzzleHttp\Client(['timeout' => 300, 'http_errors' => false]);
 
-            $response = $client->post($this->apiUrl, [
+            $response = Http::timeout(300)->post($this->apiUrl, [
                 'json' => [
                     'model' => $this->model,
                     'prompt' => $systemPrompt . "\n\nInput: " . $prompt,
