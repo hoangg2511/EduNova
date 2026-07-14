@@ -37,6 +37,8 @@ class AIAgentService
 
   public function streamOllama(string $prompt, string $systemPrompt, callable $onChunk): void
     {
+        set_time_limit(300);
+
         try {
             $client = new \GuzzleHttp\Client(['timeout' => 300, 'http_errors' => false]);
 
