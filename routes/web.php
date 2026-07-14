@@ -4,6 +4,7 @@ use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\ExamTakerController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\SubscriptionController;
 // 1. PUBLIC ROUTES (Ai cũng vào được, kể cả người đã login hay chưa)
 Route::get('/', function () {
     if (auth()->check()) {
@@ -13,7 +14,17 @@ Route::get('/', function () {
     }
     return redirect()->route('login');
 });
-
+Route::get('/debug-bom', function () {
+        ob_start();
+        // giả lập gọi hàm templateExam nhưng chỉ lấy vài chục byte đầu
+        $service = app(\App\Services\ExcelService::class);
+        $response = $service->templateExam();
+        $content = '';
+        ob_start();
+        $response->sendContent();
+        $content = ob_get_clean();
+        return response(bin2hex(substr($content, 0, 20)))->header('Content-Type', 'text/plain');
+    });
 
 Route::get('/exams/taker/{id}', [ExamTakerController::class, 'show'])->name('exams.taker');
 Route::post('/exams/taker/{id}/submit', [ExamTakerController::class, 'submit'])->name('exams.taker.submit');
@@ -22,7 +33,7 @@ Route::get('/checkout', [PaymentController::class, 'showCheckout'])->name('payme
 Route::get('/payment/success', [PaymentController::class, 'success'])->name('payment.success');
 Route::get('/payment/error', [PaymentController::class, 'error'])->name('payment.error');
 Route::get('/payment/cancel', [PaymentController::class, 'cancel'])->name('payment.cancel');
-Route::post('/payment/ipn', [PaymentController::class, 'handleIpn'])->name('payment.ipn');
+Route::post('/payment/ipn', [SubscriptionController::class, 'handleIpn'])->name('payment.ipn');
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [LoginController::class, 'showLoginForm'])->name('login');

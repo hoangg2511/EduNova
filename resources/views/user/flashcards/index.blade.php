@@ -682,10 +682,10 @@
         <div class="px-6 py-6 flex flex-col gap-3 items-center" x-show="studyQueue.length > 0">
             <div class="flex gap-3 w-full max-w-xl">
                 <button @click="studyMark('learning')" class="flex-1 py-3 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 font-semibold text-sm hover:bg-amber-500/30 transition-all">
-                    😅 Chưa thuộc
+                    Chưa thuộc
                 </button>
                 <button @click="studyMark('learned')" class="flex-1 py-3 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-semibold text-sm hover:bg-emerald-500/30 transition-all">
-                    ✅ Đã thuộc
+                    Đã thuộc
                 </button>
             </div>
             <div class="flex gap-3">
@@ -801,28 +801,12 @@ function fcApp(config) {
 
         /* ── init ── */
         init() {
-            // 1. Lấy dữ liệu từ localStorage
-            const saved = localStorage.getItem('edunova_decks');
-            let loadedDecks = null;
-            console.log('Flashcards data:', config.decks);
-            console.log('Active Deck ID:', this.activeDeckId);
-            console.log('Streak Days:', this.streakDays);
-            if (saved && saved !== 'undefined' && saved !== '[]') {
-                try {
-                    loadedDecks = JSON.parse(saved);
-                } catch (e) {
-                    // Vẫn giữ lại error log để debug khi có lỗi cú pháp JSON nghiêm trọng
-                    console.error("Lỗi parse JSON:", e);
-                }
-            }
-
-            // 2. Quyết định chọn dữ liệu: Ưu tiên dữ liệu từ LocalStorage
-            if (loadedDecks && loadedDecks.length > 0) {
-                this.decks = loadedDecks;
-            } else {
-                this.decks = config.decks || [];
-                this.persist(); // Đồng bộ lại vào LocalStorage
-            }
+            // Server luôn là nguồn dữ liệu chuẩn (đã bao gồm deck do chatbot AI vừa tạo).
+            // localStorage chỉ dùng để cache cho optimistic UI (star, status...),
+            // KHÔNG được ưu tiên hơn dữ liệu server, nếu không deck mới sẽ bị
+            // cache cũ "che mất" cho tới khi user xoá localStorage thủ công.
+            this.decks = config.decks || [];
+            this.persist();
 
             window.addEventListener('chatbot:flashcard-created', async () => {
                 this.showToast('Flashcard mới được tạo. Cập nhật dữ liệu...', 'success');
@@ -1002,7 +986,7 @@ function fcApp(config) {
                 this.showCardModal = false;
                 this.$nextTick(() => lucide.createIcons());
 
-            } catch (error) {
+            }  catch (error) {
                 if (error.response?.data?.errors) {
                     this.cardErrors = error.response.data.errors; 
                     this.showToast('Vui lòng sửa lỗi trên form!', 'error');

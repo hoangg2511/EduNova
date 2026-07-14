@@ -252,25 +252,33 @@ class ExamController extends Controller
     }
 
     public function importExam(Request $request, ExcelService $importService)
-    {
-        // Validate file
-        $request->validate([
-            'file' => 'required|file|mimes:csv,txt|max:2048',
+{
+    $request->validate([
+        'file' => 'required|file|mimes:csv,txt|max:2048',
+    ]);
+
+    try {
+        $path = $request->file('file')->getRealPath();
+        
+        // --- BẮT ĐẦU ĐOẠN LOG ĐỂ KIỂM TRA ---
+        $fileContent = file($path); // Đọc file thành mảng các dòng
+        Log::info('Nội dung file CSV nhận được:', [
+            'total_rows' => count($fileContent),
+            'first_rows' => array_slice($fileContent, 0, 5) // Xem trước 5 dòng đầu
         ]);
+        // --- KẾT THÚC ĐOẠN LOG ---
 
-        try {
-            // Gọi service xử lý lưu vào Database
-            $exam = $importService->importExam($request->file('file')->getRealPath());
+        $exam = $importService->importExam($path);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Đã tạo bài thi: ' . $exam->title
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Import error: ' . $e->getMessage());
-            return response()->json(['success' => false, 'message' => 'Lỗi xử lý file.'], 500);
-        }
+        return response()->json([
+            'success' => true,
+            'message' => 'Đã tạo bài thi: ' . $exam->title
+        ]);
+    } catch (\Exception $e) {
+        Log::error('Import error: ' . $e->getMessage());
+        return response()->json(['success' => false, 'message' => 'Lỗi xử lý file: ' . $e->getMessage()], 500);
     }
+}
 
     public function exportExam($id, ExcelService $excelService)
     {

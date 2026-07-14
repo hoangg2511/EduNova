@@ -78,18 +78,55 @@ class SubscriptionController extends Controller
             'color'           => 'sometimes|required|string|max:20',
             'is_featured'     => 'boolean',
             'is_active'       => 'boolean',
+            'apply_now'       => 'boolean', // ← mới: có đồng bộ ngay cho học viên đang active không
         ]);
+
+        // apply_now chỉ là cờ hành động một lần, không phải cột của bảng plans
+        $applyNow = (bool) ($data['apply_now'] ?? false);
+        unset($data['apply_now']);
 
         if (isset($data['features'])) {
             $data['features'] = array_values(array_filter($data['features'], fn($f) => trim($f)));
         }
 
         $plan->update($data);
+        $plan->refresh();
+
+        $affected = 0;
+        if ($applyNow) {
+            $affected = $this->syncActiveSubscribersToPlan($plan);
+        }
 
         return response()->json([
-            'message' => 'Đã cập nhật gói ' . $plan->name,
-            'plan'    => $this->formatPlan($plan->fresh()->loadCount('activeSubscriptions')),
+            'message' => $applyNow
+                ? "Đã cập nhật gói {$plan->name} và áp dụng ngay cho {$affected} học viên đang dùng"
+                : "Đã cập nhật gói {$plan->name}",
+            'plan'    => $this->formatPlan($plan->loadCount('activeSubscriptions')),
         ]);
+    }
+
+    /**
+     * Đồng bộ lại hạn mức (token/knowledge/download/duration) trong UserLog
+     * cho tất cả user đang có subscription 'active' với plan này,
+     * để thay đổi có hiệu lực ngay thay vì chờ lần gia hạn kế tiếp.
+     */
+    private function syncActiveSubscribersToPlan(Plan $plan): int
+    {
+        $activeSubs = $plan->activeSubscriptions()->get();
+
+        foreach ($activeSubs as $sub) {
+            UserLog::updateOrCreate(
+                ['user_id' => $sub->user_id],
+                [
+                    'token_limit'     => $plan->token_limit,
+                    'knowledge_limit' => $plan->knowledge_limit,
+                    'download_limit'  => $plan->download_limit,
+                    'duration_days'   => $plan->duration_days,
+                ]
+            );
+        }
+
+        return $activeSubs->count();
     }
 
     public function togglePlanActive(Plan $plan): JsonResponse

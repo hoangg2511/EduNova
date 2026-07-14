@@ -1122,7 +1122,7 @@ function examApp(initial = {}) {
             try {
                 // Xác định URL và Method dựa trên việc đang tạo mới hay chỉnh sửa
                 const isEditing = !!this.editingExam;
-                const url = isEditing ? `/user/exams/${this.editingExam.id}` : '/user/exams/upload';
+                const url = isEditing ? `/user/exams/${this.editingExam.id}` : '{{ route("user.exams.store") }}';
                 const method = isEditing ? 'PUT' : 'POST';
 
                 const response = await fetch(url, {
@@ -1604,40 +1604,6 @@ function examApp(initial = {}) {
             if (type === 'rightclick' && sec?.noRightClick)  this.showToast('Chuột phải bị chặn!', 'error');
         },
 
-        // ── Excel ──
-        // importExcel(event) {
-        //     const file = event.target.files[0];
-        //     if (!file) return;
-        //     const reader = new FileReader();
-        //     reader.onload = (e) => {
-        //         try {
-        //             const lines = e.target.result.split('\n').filter(l=>l.trim());
-        //             if (lines.length < 2) { this.showToast('File không hợp lệ', 'error'); return; }
-        //             const info = lines[0].split(',');
-        //             const newExam = {
-        //                 id:Date.now(), status:'draft', maxAttempts:3,
-        //                 shuffle:true, shuffleOptions:true, showResult:true, requireName:true,
-        //                 security:{ useAccessKey:false, accessKey:'', noTab:true, noCopy:true, noRightClick:false, forceFullscreen:false, maxTabWarnings:3 },
-        //                 title:       info[0]?.trim() || 'Bài thi từ Excel',
-        //                 description: info[1]?.trim() || '',
-        //                 duration:    parseInt(info[2]) || 30,
-        //                 passMark:    parseInt(info[3]) || 60,
-        //                 questions:   [],
-        //             };
-        //             for (let i=2; i<lines.length; i++) {
-        //                 const c = lines[i].split(',');
-        //                 if (!c[0]?.trim()) continue;
-        //                 newExam.questions.push({ _id:Date.now()+i, text:c[0].trim(), type:'single', points:1, options:[c[1]||'',c[2]||'',c[3]||'',c[4]||''].filter(Boolean), correctAnswers:[parseInt(c[5])||0], explanation:c[6]?.trim()||'' });
-        //             }
-        //             this.exams.unshift(newExam);
-        //             this.saveExams();
-        //             this.showToast(`Import thành công ${newExam.questions.length} câu!`);
-        //             this.$nextTick(() => lucide.createIcons());
-        //         } catch(err) { this.showToast('Lỗi đọc file', 'error'); }
-        //     };
-        //     reader.readAsText(file);
-        //     event.target.value = '';
-        // },
         importExcel(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -1672,25 +1638,80 @@ function examApp(initial = {}) {
             event.target.value = ''; // Reset input
         },
 
-        importQuestionsFromExcel(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const lines = e.target.result.split('\n').filter(l=>l.trim());
-                let added = 0;
-                for (const line of lines) {
-                    const c = line.split(',');
-                    if (!c[0]?.trim() || c[0].toLowerCase()==='question') continue;
-                    this.examForm.questions.push({ _id:Date.now()+added, text:c[0].trim(), type:'single', points:1, options:[c[1]||'',c[2]||'',c[3]||'',c[4]||''].filter(Boolean), correctAnswers:[parseInt(c[5])||0], explanation:c[6]?.trim()||'' });
-                    added++;
+    importQuestionsFromExcel(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            let text = e.target.result;
+            if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // bỏ BOM
+
+            const rows = this.parseCsv(text, ';');
+            let added = 0;
+
+            for (const row of rows) {
+                const firstCell = (row[0] || '').trim();
+                if (!firstCell) continue;
+                if (firstCell.toUpperCase().startsWith('HƯỚNG DẪN')) continue; // bỏ dòng hướng dẫn
+                if (firstCell === 'Câu hỏi') continue;                        // bỏ dòng header
+
+                const type = (row[7] || 'single').trim().toLowerCase();
+                const rawAnswer = (row[5] || '0').trim();
+                let correctAnswers;
+
+                if (type === 'multiple') {
+                    correctAnswers = rawAnswer.split(';').map(v => parseInt(v.trim())).filter(v => !isNaN(v));
+                } else if (type === 'truefalse') {
+                    correctAnswers = [rawAnswer]; // 'true' / 'false'
+                } else {
+                    correctAnswers = [parseInt(rawAnswer) || 0];
                 }
-                this.showToast(`Đã thêm ${added} câu hỏi!`);
-                this.$nextTick(() => lucide.createIcons());
-            };
-            reader.readAsText(file);
-            event.target.value = '';
-        },
+
+                const options = type === 'truefalse'
+                    ? ['Đúng', 'Sai']
+                    : [row[1] || '', row[2] || '', row[3] || '', row[4] || ''];
+
+                this.examForm.questions.push({
+                    _id: Date.now() + added,
+                    text: firstCell,
+                    type,
+                    points: 1,
+                    options,
+                    correctAnswers,
+                    explanation: row[6] || '',
+                });
+                added++;
+            }
+
+            this.showToast(`Đã thêm ${added} câu hỏi!`);
+            this.$nextTick(() => lucide.createIcons());
+        };
+        reader.readAsText(file, 'UTF-8');
+        event.target.value = '';
+    },
+
+    // Parser CSV đơn giản, tôn trọng dấu ngoặc kép, nhận delimiter tuỳ chỉnh
+    parseCsv(text, delimiter = ',') {
+        const rows = [];
+        let row = [], field = '', inQuotes = false;
+
+        for (let i = 0; i < text.length; i++) {
+            const c = text[i], next = text[i + 1];
+            if (inQuotes) {
+                if (c === '"' && next === '"') { field += '"'; i++; }
+                else if (c === '"') { inQuotes = false; }
+                else field += c;
+            } else {
+                if (c === '"') inQuotes = true;
+                else if (c === delimiter) { row.push(field); field = ''; }
+                else if (c === '\r') { /* bỏ qua */ }
+                else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+                else field += c;
+            }
+        }
+        if (field.length || row.length) { row.push(field); rows.push(row); }
+        return rows.filter(r => r.some(v => v && v.trim() !== ''));
+    },
 
         exportTemplateQuestion() {
             // Điều hướng tới route xuất template

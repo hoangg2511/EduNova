@@ -191,8 +191,16 @@
                         <div class="flex gap-3 mb-6">
                             <span class="w-8 h-8 rounded-xl bg-slate-900 text-white text-sm font-black flex items-center justify-center shrink-0"
                                 x-text="takerState.current + 1"></span>
-                            <p class="text-base font-semibold text-slate-900 leading-relaxed"
-                                x-text="questions[takerState.current].text"></p>
+                            <div>
+                                <p class="text-base font-semibold text-slate-900 leading-relaxed"
+                                    x-text="questions[takerState.current].text"></p>
+                                <template x-if="questions[takerState.current].type === 'multiple'">
+                                    <p class="mt-2 inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                                        <i data-lucide="check-square" class="w-3.5 h-3.5"></i>
+                                        Chọn nhiều đáp án
+                                    </p>
+                                </template>
+                            </div>
                         </div>
 
                         <div class="space-y-3">

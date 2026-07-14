@@ -163,7 +163,7 @@
 
                         <div x-show="activeTab === 'my'" class="mt-2">
                             <span class="text-xs font-semibold px-2 py-1 rounded-full"
-                                :class="doc.status === 1 ? 'bg-emerald-100 text-emerald-800' : (doc.status === 2 ? 'bg-rose-100 text-rose-800' : 'bg-yellow-100 text-yellow-800')"
+                                :class="getStatusClass(doc.status)"
                                 x-text="statusText(doc.status)">
                             </span>
                         </div>
@@ -230,7 +230,7 @@
                         <p class="text-xs text-slate-500 mt-0.5" x-text="`${doc.author} · ${doc.category}`"></p>
                         <div x-show="activeTab === 'my'" class="mt-1">
                             <span class="text-xs font-semibold px-2 py-1 rounded-full"
-                                :class="doc.status === 1 ? 'bg-emerald-100 text-emerald-800' : (doc.status === 2 ? 'bg-rose-100 text-rose-800' : 'bg-yellow-100 text-yellow-800')"
+                                :class="getStatusClass(doc.status)"
                                 x-text="statusText(doc.status)">
                             </span>
                         </div>
@@ -569,6 +569,7 @@
 
 </div>
 
+
 @php
     $mapDoc = fn($doc) => [
         'id'          => $doc->id,
@@ -579,18 +580,31 @@
         'size'        => $doc->size,
         'downloads'   => $doc->downloads,
         'rating'      => $doc->rate,
-        'reviews'     => $doc->reviews ? $doc->reviews->count() : 0,
+        'reviews'     => $doc->reviews instanceof \Illuminate\Support\Collection
+                            ? $doc->reviews->count()
+                            : (is_int($doc->reviews) ? $doc->reviews : 0),
         'view_url'    => $doc->view_url ?? '',
-        'color'       => '#3B82F6',
-        'icon'        => 'file-text',
+        'color'       => $doc->color,
+        'icon'        => $doc->icon,
         'description' => $doc->description,
         'tags'        => $doc->tags->pluck('name') ?? [],
         'types'       => $doc->types->pluck('name') ?? [],
         'status'      => $doc->status,
-        'reviewList'  => [],
+        // ── MỚI: map reviewList từ DB ──────────────────────────────────────
+        'reviewList'  => $doc->relationLoaded('reviews')
+            ? $doc->reviews->map(fn($r) => [
+                'id'      => $r->id,
+                'user'    => $r->user?->name ?? 'Ẩn danh',
+                'rating'  => $r->rating,
+                'comment' => $r->comment ?? 'Không có nhận xét.',
+              ])->values()->toArray()
+            : [],
+        // ── MỚI: rating của user hiện tại (nếu đã đánh giá) ───────────────
+        'myRating'    => $doc->relationLoaded('reviews')
+            ? ($doc->reviews->firstWhere('user_id', auth()->id())?->rating ?? 0)
+            : 0,
     ];
-
-    $libraryJson = json_encode([
+      $libraryJson = json_encode([
         'all'   => $documents->map($mapDoc)->values(),
         'saved' => $savedDocuments->map($mapDoc)->values(),
         'my'    => $myDocuments->map($mapDoc)->values(),
@@ -647,45 +661,62 @@ function documentLibrary() {
     },
 
         filterDocs() {
-            let result = [...this.allDocs];
+            let result;
 
-            if (this.activeTab === 'saved') result = library.saved;
-            if (this.activeTab === 'my')    result = library.my;
+            if (this.activeTab === 'saved') {
+                result = [...library.saved];
+            } else if (this.activeTab === 'my') {
+                result = [...this.myList];  // myList chứa tất cả status
+            } else if (this.activeTab === 'recent') {
+                // "Gần đây" chỉ lấy approved
+                result = [...this.allDocs].slice(0, 10);
+            } else {
+                // "Tất cả" — chỉ approved, lọc thêm phòng khi myList bị lẫn vào
+                result = this.allDocs.filter(d => d.status === 'approved');
+            }
 
             // Search
             if (this.searchQuery) {
                 const q = this.searchQuery.toLowerCase();
                 result = result.filter(d =>
-                    d.title.toLowerCase().includes(q) ||                        
+                    d.title.toLowerCase().includes(q) ||
                     d.author.toLowerCase().includes(q) ||
-                    d.tags.some(t => t.toLowerCase().includes(q))
+                    (d.tags || []).some(t => t.toLowerCase().includes(q))
                 );
             }
 
             // Category
-            if (this.filterCategory) result = result.filter(d => d.tags.some(t => t === this.filterCategory));
+            if (this.filterCategory) result = result.filter(d => (d.tags || []).some(t => t === this.filterCategory));
 
-            // Type                
-            if (this.filterType) result = result.filter(d => d.types.some(t => t === this.filterType));
+            // Type
+            if (this.filterType) result = result.filter(d => (d.types || []).some(t => t === this.filterType));
 
             // Sort
-            if (this.sortBy === 'popular') result.sort((a,b) => b.downloads - a.downloads);
+            if (this.sortBy === 'popular')     result.sort((a,b) => b.downloads - a.downloads);
             else if (this.sortBy === 'rating') result.sort((a,b) => b.rating - a.rating);
-            else if (this.sortBy === 'az') result.sort((a,b) => a.title.localeCompare(b.title));
-            else result.sort((a,b) => b.id - a.id); // newest
+            else if (this.sortBy === 'az')     result.sort((a,b) => a.title.localeCompare(b.title));
+            else result.sort((a,b) => b.id - a.id);
 
             this.filteredDocs = result;
             this.$nextTick(() => lucide.createIcons());
         },
 
         statusText(status) {
-            // Ép kiểu về dạng số (Number) trước khi so sánh hoặc dùng ==
-            const s = Number(status); 
-            
-            if (s === 1) return 'Đã duyệt';
-            if (s === 2) return 'Từ chối';
-            if (s === 0) return 'Chờ xét duyệt';
-            return 'Không xác định';
+        const map = {
+            'approved': 'Đã duyệt',
+            'reject': 'Từ chối',
+            'pending': 'Chờ xét duyệt'
+        };
+        return map[status] || 'Không xác định';
+        },
+
+        getStatusClass(status) {
+            const classes = {
+                'approved': 'bg-emerald-100 text-emerald-800',
+                'reject': 'bg-rose-100 text-rose-800',
+                'pending': 'bg-yellow-100 text-yellow-800'
+            };
+            return classes[status] || 'bg-gray-100 text-gray-800';
         },
 
         
@@ -735,101 +766,140 @@ function documentLibrary() {
         },
 
         openDetailModal(doc) {
-            this.selectedDoc = doc;
-            this.openDetail = true;
-            this.userRating = 0;
-            this.hoverRating = 0;
-            this.userComment = '';
+            this.selectedDoc  = doc;
+            this.openDetail   = true;
+            // Nếu user đã đánh giá trước đó → hiển thị lại rating cũ
+            this.userRating   = doc.myRating || 0;
+            this.hoverRating  = this.userRating;
+            this.userComment  = '';
             this.$nextTick(() => lucide.createIcons());
         },
-openView(doc) {
-    if (!doc || !doc.id) {
-        console.warn('[UI] Tài liệu không khả dụng', { doc });
-        this.showToast('Tài liệu không khả dụng.', 'error');
-        return;
-    }
-    
-    console.info(`[UI] Người dùng đang mở tài liệu ID: ${doc.id}`);
-    window.open(`/user/documents/${doc.id}/view`, '_blank', 'noopener,noreferrer');
-},
-        async downloadDoc(doc) {
-    if (!doc || !doc.id) {
-        this.showToast('Tài liệu không khả dụng để tải.', 'error');
-        return;
-    }
-
-    try {
-        this.showToast(`Đang chuẩn bị tải "${doc.title}"...`, 'warning');
-
-        // 1. Gửi request tới Controller
-        const response = await axios.get(`/user/documents/${doc.id}/download`, {
-            responseType: 'blob' // Rất quan trọng để nhận dữ liệu file
-        });
-
-        // 2. Lấy MIME type từ header, nếu không có thì mặc định là application/octet-stream
-        const contentType = response.headers['content-type'] || 'application/octet-stream';
-        
-        // 3. Tạo Blob từ dữ liệu nhị phân
-        const blob = new Blob([response.data], { type: contentType });
-        const url = window.URL.createObjectURL(blob);
-        
-        // 4. Tạo thẻ a tạm thời để trigger tải xuống
-        const link = document.createElement('a');
-        link.href = url;
-        
-        // Lấy tên file từ header (nếu server gửi Content-Disposition) 
-        // hoặc dùng tiêu đề của doc
-        link.setAttribute('download', (doc.title || 'download').replace(/[^a-z0-9\.\-_ ]/gi, '_'));
-        
-        document.body.appendChild(link);
-        link.click();
-        
-        // Dọn dẹp
-        link.remove();
-        window.URL.revokeObjectURL(url);
-
-        // 5. Cập nhật UI sau khi tải thành công
-        doc.downloads = (doc.downloads || 0) + 1;
-        this.showToast(`Tải thành công "${doc.title}"`, 'success');
-
-    } catch (error) {
-        // 6. Xử lý phản hồi lỗi từ server
-        if (error.response) {
-            if (error.response.status === 403) {
-                // Xử lý khi API trả về JSON: { "success": false, "message": "..." }
-                // Vì axios nhận về Blob, ta cần đọc nội dung lỗi
-                const reader = new FileReader();
-                reader.onload = () => {
-                    const errorData = JSON.parse(reader.result);
-                    this.showToast(errorData.message || 'Bạn đã hết lượt tải.', 'error');
-                };
-                reader.readAsText(error.response.data);
-            } else {
-                this.showToast('Đã có lỗi xảy ra khi tải file.', 'error');
+        openView(doc) {
+            if (!doc || !doc.id) {
+                console.warn('[UI] Tài liệu không khả dụng', { doc });
+                this.showToast('Tài liệu không khả dụng.', 'error');
+                return;
             }
-        } else {
-            console.error(error);
-            this.showToast('Không thể kết nối tới máy chủ.', 'error');
-        }
-    }
-},
-        submitRating() {
+            
+            console.info(`[UI] Người dùng đang mở tài liệu ID: ${doc.id}`);
+            window.open(`/user/documents/${doc.id}/view`, '_blank', 'noopener,noreferrer');
+        },
+        async downloadDoc(doc) {
+            if (!doc || !doc.id) {
+                this.showToast('Tài liệu không khả dụng để tải.', 'error');
+                return;
+            }
+
+            try {
+                this.showToast(`Đang chuẩn bị tải "${doc.title}"...`, 'warning');
+
+                // 1. Gửi request tới Controller
+                const response = await axios.get(`/user/documents/${doc.id}/download`, {
+                    responseType: 'blob' // Rất quan trọng để nhận dữ liệu file
+                });
+
+                // 2. Lấy MIME type từ header, nếu không có thì mặc định là application/octet-stream
+                const contentType = response.headers['content-type'] || 'application/octet-stream';
+                
+                // 3. Tạo Blob từ dữ liệu nhị phân
+                const blob = new Blob([response.data], { type: contentType });
+                const url = window.URL.createObjectURL(blob);
+                
+                // 4. Tạo thẻ a tạm thời để trigger tải xuống
+                const link = document.createElement('a');
+                link.href = url;
+                
+                // Lấy tên file từ header (nếu server gửi Content-Disposition) 
+                // hoặc dùng tiêu đề của doc
+                link.setAttribute('download', (doc.title || 'download').replace(/[^a-z0-9\.\-_ ]/gi, '_'));
+                
+                document.body.appendChild(link);
+                link.click();
+                
+                // Dọn dẹp
+                link.remove();
+                window.URL.revokeObjectURL(url);
+
+                // 5. Cập nhật UI sau khi tải thành công
+                doc.downloads = (doc.downloads || 0) + 1;
+                this.showToast(`Tải thành công "${doc.title}"`, 'success');
+
+            } catch (error) {
+                // 6. Xử lý phản hồi lỗi từ server
+                if (error.response) {
+                    if (error.response.status === 403) {
+                        // Xử lý khi API trả về JSON: { "success": false, "message": "..." }
+                        // Vì axios nhận về Blob, ta cần đọc nội dung lỗi
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                            const errorData = JSON.parse(reader.result);
+                            this.showToast(errorData.message || 'Bạn đã hết lượt tải.', 'error');
+                        };
+                        reader.readAsText(error.response.data);
+                    } else {
+                        this.showToast('Đã có lỗi xảy ra khi tải file.', 'error');
+                    }
+                } else {
+                    console.error(error);
+                    this.showToast('Không thể kết nối tới máy chủ.', 'error');
+                }
+            }
+        },
+        async submitRating() {
             if (!this.userRating || !this.selectedDoc) return;
-            const newReview = {
-                id: Date.now(),
-                user: 'Bạn',
-                rating: this.userRating,
-                comment: this.userComment || 'Không có nhận xét.',
-            };
-            if (!this.selectedDoc.reviewList) this.selectedDoc.reviewList = [];
-            this.selectedDoc.reviewList.unshift(newReview);
-            this.selectedDoc.reviews++;
-            this.selectedDoc.rating = ((this.selectedDoc.rating * (this.selectedDoc.reviews - 1)) + this.userRating) / this.selectedDoc.reviews;
-            this.selectedDoc.rating = Math.round(this.selectedDoc.rating * 10) / 10;
-            this.userRating = 0;
-            this.userComment = '';
-            this.showToast('Đã gửi đánh giá, cảm ơn bạn!', 'success');
-            this.$nextTick(() => lucide.createIcons());
+        
+            try {
+                const token = document.querySelector('meta[name="csrf-token"]')
+                                ?.getAttribute('content') || '';
+        
+                const response = await fetch(
+                    `/user/documents/${this.selectedDoc.id}/reviews`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': token,
+                        },
+                        body: JSON.stringify({
+                            rating:  this.userRating,
+                            comment: this.userComment || null,
+                        }),
+                    }
+                );
+        
+                const data = await response.json();
+        
+                if (!response.ok) {
+                    this.showToast(data.message || 'Gửi đánh giá thất bại.', 'error');
+                    return;
+                }
+        
+                // Cập nhật reviewList ngay trên UI (không cần reload trang)
+                if (!this.selectedDoc.reviewList) this.selectedDoc.reviewList = [];
+        
+                // Nếu user đã có review cũ → xóa khỏi list rồi thêm mới lên đầu
+                this.selectedDoc.reviewList = this.selectedDoc.reviewList
+                    .filter(r => r.user !== data.review.user);
+                this.selectedDoc.reviewList.unshift(data.review);
+        
+                // Cập nhật rating tổng từ server
+                this.selectedDoc.rating  = data.new_rating;
+                this.selectedDoc.reviews = data.new_reviews;
+                this.selectedDoc.myRating = data.review.rating;
+        
+                // Reset form
+                this.userRating  = data.review.rating; // giữ lại sao đã chọn
+                this.hoverRating = this.userRating;
+                this.userComment = '';
+        
+                this.showToast(data.message, 'success');
+                this.$nextTick(() => lucide.createIcons());
+        
+            } catch (error) {
+                console.error('submitRating error:', error);
+                this.showToast('Không thể kết nối máy chủ.', 'error');
+            }
         },
 
         handleFileDrop(e) {
@@ -866,37 +936,48 @@ openView(doc) {
                 }
             };
 
-            xhr.onload = () => {
-                this.uploading = false;
-                if (xhr.status >= 200 && xhr.status < 300) {
-                    const response = JSON.parse(xhr.responseText);
-                    const typeMap = { pdf: 'PDF', doc: 'DOC', docx: 'DOC', ppt: 'PPT', pptx: 'PPT', mp4: 'Video' };
-                    const ext = this.uploadFile.name.split('.').pop().toLowerCase();
-                    const newDoc = {
-                        id: response.document?.id || Date.now(),
-                        title: response.document?.name || this.uploadForm.title,
-                        author: this.uploadForm.author || 'Bạn',
-                        view_url: response.view_url || '',
-                        type: typeMap[ext] || 'FILE',
-                        category: response.document?.category || this.uploadForm.category || 'other',
-                        size: this.formatFileSize(this.uploadFile.size),
-                        downloads: 0,
-                        rating: 0,
-                        reviews: 0,
-                        color: '#6366F1',
-                        icon: 'file',
-                        description: response.document?.description || this.uploadForm.description,
-                        tags: [this.uploadForm.category || 'Tài liệu'],
-                        reviewList: [],
-                    };
-                    this.allDocs.unshift(newDoc);
-                    this.filterDocs();
-                    this.uploadProgress = 0;
-                    this.uploadFile = null;
-                    this.uploadForm = { title: '', category: '', author: '', description: '' };
-                    this.openUpload = false;
-                    this.showToast('Upload tài liệu thành công!', 'success');
-                } else {
+        xhr.onload = () => {
+            this.uploading = false;
+            if (xhr.status >= 200 && xhr.status < 300) {
+                const response = JSON.parse(xhr.responseText);
+                const typeMap = { pdf: 'PDF', doc: 'DOC', docx: 'DOC', ppt: 'PPT', pptx: 'PPT', mp4: 'Video' };
+                const ext = this.uploadFile.name.split('.').pop().toLowerCase();
+                const newDoc = {
+                    id: response.document?.id || Date.now(),
+                    title: response.document?.name || this.uploadForm.title,
+                    author: this.uploadForm.author || 'Bạn',
+                    view_url: response.view_url || '',
+                    type: typeMap[ext] || 'FILE',
+                    category: response.document?.category || this.uploadForm.category || 'other',
+                    size: this.formatFileSize(this.uploadFile.size),
+                    downloads: 0,
+                    rating: 0,
+                    reviews: 0,
+                    color: '#6366F1',
+                    icon: 'file',
+                    description: response.document?.description || this.uploadForm.description,
+                    tags: [this.uploadForm.category || 'Tài liệu'],
+                    status: 'pending',   // ← luôn pending khi mới upload
+                    reviewList: [],
+                    myRating: 0,
+                };
+
+                // ❌ Bỏ dòng này — không được xuất hiện ở tab "Tất cả"
+                // this.allDocs.unshift(newDoc);
+
+                // ✅ Chỉ thêm vào myList (tab "Của tôi")
+                this.myList.unshift(newDoc);
+
+                // Chuyển sang tab "Của tôi" để user thấy ngay
+                this.activeTab = 'my';
+                this.filterDocs();
+
+                this.uploadProgress = 0;
+                this.uploadFile = null;
+                this.uploadForm = { title: '', category: '', author: '', description: '' };
+                this.openUpload = false;
+                this.showToast('Upload thành công! Tài liệu đang chờ xét duyệt.', 'success');
+            } else {
                     let message = 'Upload thất bại. Vui lòng thử lại.';
                     try {
                         const errorData = JSON.parse(xhr.responseText);

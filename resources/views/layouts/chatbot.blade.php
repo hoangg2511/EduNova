@@ -32,9 +32,23 @@
             </div>
             <div class="flex-1 min-w-0">
                 <p class="font-bold text-white text-sm leading-tight">Trợ lý EduNova AI</p>
-                <div class="flex items-center gap-1.5 mt-0.5">
-                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                    <span class="text-xs text-slate-400">Sẵn sàng hỗ trợ</span>
+                <div class="flex items-center gap-2 mt-0.5">
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span class="text-xs text-slate-400">Sẵn sàng hỗ trợ</span>
+                    </div>
+                    {{-- Token badge --}}
+                    <button @click="$store.wallet.openModal('token')"
+                        class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+                        x-show="tokenLimit !== null" title="Hết token? Bấm để đổi coin lấy thêm">
+                        <i data-lucide="zap" class="w-3 h-3 text-yellow-400"></i>
+                        <span class="text-[10px] font-bold"
+                            :class="tokenLimit <= 500 ? 'text-rose-400' : 'text-yellow-400'"
+                            x-text="tokenLimit >= 1000 
+                                ? (tokenLimit / 1000).toFixed(1) + 'K' 
+                                : tokenLimit + ' token'">
+                        </span>
+                    </button>
                 </div>
             </div>
             <div class="flex items-center gap-1">
@@ -133,8 +147,21 @@
             </div>
         </div>
 
+        {{-- ✅ Banner hết token — đổi coin lấy token ngay tại đây --}}
+        <div x-show="tokenLimit <= 0" x-cloak
+            class="mx-4 mb-2 px-4 py-3 rounded-2xl bg-rose-50 border border-rose-200 flex items-center gap-3 shrink-0">
+            <i data-lucide="battery-warning" class="w-5 h-5 text-rose-500 shrink-0"></i>
+            <div class="flex-1 min-w-0">
+                <p class="text-xs font-bold text-rose-700">Bạn đã hết token chat</p>
+                <p class="text-[11px] text-rose-500">Dùng coin để đổi thêm token và tiếp tục trò chuyện.</p>
+            </div>
+            <button @click="$store.wallet.openModal('token')"
+                class="shrink-0 px-3 py-1.5 bg-rose-600 text-white rounded-xl text-xs font-bold hover:bg-rose-700 transition-all">
+                Đổi coin
+            </button>
+        </div>
 
-                {{-- Tag selector --}}
+        {{-- Tag selector --}}
         <div class="px-4 pt-3 pb-0 border-t border-slate-200 bg-slate-50 shrink-0">
             <div class="flex items-center gap-2">
                 <div class="flex gap-1.5 flex-wrap">
@@ -219,6 +246,7 @@
             input: '',
             loading: false,
             messages: [],
+            tokenLimit: {{ $tokenLimit ?? 0 }},
             hints: ['Tạo lộ trình học Python', 'Giải thích Flexbox CSS', 'Mẹo học TOEIC'],
             selectedTag: null,
             availableTags: [
@@ -252,6 +280,14 @@
                         panel.addEventListener('dragover', (ev) => { ev.preventDefault(); if (dropIndicator) dropIndicator.style.display = 'flex'; });
                         panel.addEventListener('dragleave', (ev) => { if (dropIndicator) dropIndicator.style.display = 'none'; });
                         panel.addEventListener('drop', (ev) => { ev.preventDefault(); if (dropIndicator) dropIndicator.style.display = 'none'; this.handleDrop(ev); });
+                    }
+                });
+
+                // ✅ Khi mua thêm token thành công ở bất kỳ đâu (topbar, modal toàn cục...)
+                // đồng bộ lại tokenLimit cục bộ của chatbot ngay lập tức.
+                window.addEventListener('wallet:purchased', (e) => {
+                    if (e.detail?.token_limit !== undefined) {
+                        this.tokenLimit = e.detail.token_limit;
                     }
                 });
             },
@@ -305,7 +341,7 @@
             formatDroppedContent(cardData) {
                 // Level 1: Entire Roadmap (Toàn bộ)
                 if (cardData && cardData.level === 1 && Array.isArray(cardData.sections)) {
-                    let message = `📚 LỘ TRÌNH HỌC: ${cardData.title}\n`;
+                    let message = ` LỘ TRÌNH HỌC: ${cardData.title}\n`;
                     message += `${cardData.description || ''}\n\n`;
                     message += `CÁC CHỦ ĐỀ CHÍNH:\n`;
                     cardData.sections.forEach((sec, i) => {
@@ -316,7 +352,7 @@
                             message += `   Ví dụ: ${sample}${sec.items.length > 3 ? ', ...' : ''}\n`;
                         }
                     });
-                    message += `\n📋 Yêu cầu: Tóm tắt lộ trình này thành kế hoạch học tập 4-6 tuần, chia rõ từng tuần và mục tiêu cụ thể.`;
+                    message += `\n Yêu cầu: Tóm tắt lộ trình này thành kế hoạch học tập 4-6 tuần, chia rõ từng tuần và mục tiêu cụ thể.`;
                     return message.trim();
                 }
 
@@ -330,41 +366,41 @@
                         if (it.content) message += ` — ${it.content.replace(/\n/g, ' ').slice(0, 150)}`;
                         message += `\n`;
                     });
-                    message += `\n📋 Yêu cầu: Tóm tắt các mục trên hoặc tạo hướng dẫn chi tiết để học.`;
+                    message += `\nYêu cầu: Tóm tắt các mục trên hoặc tạo hướng dẫn chi tiết để học.`;
                     return message.trim();
                 }
 
                 // Level 3: Single Item (Nội dung con)
                 if (cardData && cardData.level === 3) {
-                    let message = `📝 NỘI DUNG: ${cardData.title}\n`;
+                    let message = ` NỘI DUNG: ${cardData.title}\n`;
                     if (cardData.section) message += `Chủ đề: ${cardData.section}\n`;
                     if (cardData.subsection) message += `Phân nhánh: ${cardData.subsection}\n`;
                     message += `\n`;
                     if (cardData.content) message += `${cardData.content}\n`;
-                    if (cardData.formula) message += `\n🔢 CÔNG THỨC:\n${cardData.formula}\n`;
-                    if (cardData.example) message += `\n💡 VÍ DỤ:\n${cardData.example}\n`;
-                    message += `\n📋 Yêu cầu: Giải thích, mở rộng hoặc cung cấp thêm ví dụ cho nội dung này.`;
+                    if (cardData.formula) message += `\n CÔNG THỨC:\n${cardData.formula}\n`;
+                    if (cardData.example) message += `\n VÍ DỤ:\n${cardData.example}\n`;
+                    message += `\n Yêu cầu: Giải thích, mở rộng hoặc cung cấp thêm ví dụ cho nội dung này.`;
                     return message.trim();
                 }
 
                 // Legacy: Array with items (section from old format)
                 if (cardData && Array.isArray(cardData.items)) {
-                    let message = `📌 CHỦĐỀ: ${cardData.title}\n`;
+                    let message = ` CHỦĐỀ: ${cardData.title}\n`;
                     if (cardData.description) message += `${cardData.description}\n`;
                     message += `\nCÁC MỤC CON:\n`;
                     cardData.items.forEach((it, i) => {
                         message += `${i + 1}. ${it.title}${it.content ? ' — ' + it.content.replace(/\n/g, ' ').slice(0, 150) : ''}\n`;
                     });
-                    message += `\n📋 Yêu cầu: Tóm tắt hoặc tạo hướng dẫn.`;
+                    message += `\nYêu cầu: Tóm tắt hoặc tạo hướng dẫn.`;
                     return message.trim();
                 }
 
                 // Fallback: Single card
-                let message = `📝 ${cardData.title || ''}\n`;
+                let message = `${cardData.title || ''}\n`;
                 if (cardData.topic) message += `(Chủ đề: ${cardData.topic})\n`;
                 if (cardData.content) message += `\n${cardData.content}\n`;
-                if (cardData.formula) message += `\n🔢 Công thức: ${cardData.formula}\n`;
-                if (cardData.example) message += `\n💡 Ví dụ: ${cardData.example}\n`;
+                if (cardData.formula) message += `\nCông thức: ${cardData.formula}\n`;
+                if (cardData.example) message += `\nVí dụ: ${cardData.example}\n`;
                 return message.trim();
             },
 
@@ -374,13 +410,19 @@
                 const text = this.input.trim();
                 if (!text || this.loading) return;
 
-                // ── QUAN TRỌNG: Lưu tag trước khi reset state ──
                 const activeTag = this.selectedTag?.key ?? null;
 
+                // ── Kiểm tra token trên FE trước (chỉ với chat thường) ──────────
+                if (!activeTag && this.tokenLimit <= 0) {
+                    showToast('Bạn đã hết token chat. Hãy đổi coin để nạp thêm.', 'warning');
+                    return;
+                }
+
                 this.messages.push({ role: 'user', content: text });
-                this.input        = '';
-                this.selectedTag  = null;   // reset SAU khi đã lưu vào activeTag
-                this.loading      = true;
+                this.input   = '';
+                this.loading = true;
+                // ⚠ KHÔNG reset selectedTag ở đây nữa — chỉ reset sau khi biết AI đã "done" hay vẫn "ask"
+                // (xem xử lý ở cuối hàm, dựa trên header X-Chat-Tag-Status)
 
                 this.$nextTick(() => { this.scrollBottom(); lucide.createIcons(); });
                 const ta = this.$el.querySelector('textarea');
@@ -389,7 +431,6 @@
                 const history        = this.messages.slice(-10);
                 const assistantIndex = this.messages.push({ role: 'assistant', content: '' }) - 1;
 
-                // Nếu là tag mode → hiển thị placeholder "đang xử lý"
                 if (activeTag) {
                     const tagLabels = {
                         create_exam:      'Đang tạo bài thi',
@@ -400,6 +441,8 @@
                     this.$nextTick(() => this.scrollBottom());
                 }
 
+                const tokenBefore = this.tokenLimit;
+
                 try {
                     const response = await fetch('/api/chatbot/stream', {
                         method: 'POST',
@@ -407,11 +450,7 @@
                             'Content-Type': 'application/json',
                             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
                         },
-                        body: JSON.stringify({
-                            message: text,
-                            history: history,
-                            tag:     activeTag,   // ← dùng biến tạm, không phải this.selectedTag
-                        }),
+                        body: JSON.stringify({ message: text, history, tag: activeTag }),
                     });
 
                     if (!response.ok) {
@@ -419,31 +458,55 @@
                         throw new Error(errorBody || 'Lỗi server');
                     }
 
-                    const reader = response.body?.getReader();
-                    if (!reader) throw new Error('Không hỗ trợ streaming trình duyệt.');
+                    // ← Đọc trạng thái tag ngay khi có header, trước khi đọc hết stream
+                    const tagStatus = response.headers.get('X-Chat-Tag-Status'); // 'ask' | 'done' | 'error' | null
 
-                    // Reset placeholder trước khi nhận stream thật
+                    const reader = response.body?.getReader();
+                    if (!reader) throw new Error('Không hỗ trợ streaming.');
+
                     this.messages[assistantIndex].content = '';
 
                     const decoder = new TextDecoder();
-                    let done = false;
+                    let   done      = false;
+                    let   fullReply = '';
+
                     while (!done) {
                         const { value, done: readerDone } = await reader.read();
                         if (readerDone) { done = true; break; }
                         const chunk = decoder.decode(value, { stream: true });
                         if (chunk) {
                             this.messages[assistantIndex].content += chunk;
+                            fullReply += chunk;
                             this.$nextTick(() => this.scrollBottom());
                         }
                     }
 
-                    if (activeTag === 'create_flashcard') {
-                        window.dispatchEvent(new CustomEvent('chatbot:flashcard-created'));
+                    if (!activeTag) {
+                        const used = Math.ceil((text.length + fullReply.length) / 4);
+                        this.tokenLimit = Math.max(0, this.tokenLimit - used);
+                    }
+
+                    // ── Quyết định có giữ tag hay reset, dựa trên tagStatus ──────────
+                    if (activeTag) {
+                        if (tagStatus === 'ask') {
+                            // AI vẫn cần thêm thông tin — GIỮ nguyên selectedTag để người dùng trả lời tiếp
+                            showToast('AI cần thêm thông tin, hãy trả lời câu hỏi ở trên nhé.', 'warning');
+                        } else {
+                            // Đã tạo xong (hoặc lỗi DB) — kết thúc phiên tag này
+                            this.selectedTag = null;
+                            if (activeTag === 'create_flashcard' && tagStatus === 'done') {
+                                window.dispatchEvent(new CustomEvent('chatbot:flashcard-created'));
+                            }
+                        }
                     }
 
                 } catch (err) {
+                    if (err.message?.includes('hết token')) {
+                        this.tokenLimit = 0;
+                    }
                     const msg = err instanceof Error ? err.message : 'Lỗi khi nhận phản hồi.';
                     this.messages[assistantIndex].content = '⚠️ ' + msg;
+                    // Lỗi mạng/server: không reset tag, để người dùng có thể bấm gửi lại mà không phải chọn lại tag
                 } finally {
                     this.loading = false;
                     this.$nextTick(() => { this.scrollBottom(); lucide.createIcons(); });

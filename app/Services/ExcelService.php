@@ -7,67 +7,47 @@ use App\Models\Question;
 use Illuminate\Support\Facades\Auth;
 class ExcelService
 {
-    public function templateQuestion()
-    {
-        $response = new StreamedResponse(function () {
-            $handle = fopen('php://output', 'w');
-            
-            // BOM cho UTF-8 để hiển thị đúng tiếng Việt trong Excel
-            fprintf($handle, chr(0xEF).chr(0xBB).chr(0xBF));
+  public function templateQuestion()
+{
+    $response = new StreamedResponse(function () {
+        $handle = fopen('php://output', 'w');
+        fwrite($handle, "\xEF\xBB\xBF");
+        
+        $delimiter = ';';
 
-            // Dòng hướng dẫn
-            fputcsv($handle, ['HƯỚNG DẪN: Không thay đổi tiêu đề cột dưới đây.']);
-            
-            // Tiêu đề cột theo yêu cầu mới
-            fputcsv($handle, [
-                'Câu hỏi', 
-                'Đáp án A', 
-                'Đáp án B', 
-                'Đáp án C', 
-                'Đáp án D', 
-                'Đáp án đúng (0-3)', 
-                'Giải thích',
-                'Loại câu hỏi(single/multiple/truefalse)'
-            ]);
-            
-            // Dòng dữ liệu mẫu mới
-            fputcsv($handle, [
-                'Thủ đô Việt Nam?', 
-                'Hà Nội', 
-                'TP HCM', 
-                'Đà Nẵng', 
-                'Huế', 
-                '0', 
-                'Hà Nội là thủ đô VN',
-                'single'
-            ]);
-            fputcsv($handle, [
-                'Những thành phố nào thuộc Việt Nam?', 
-                'Hà Nội', 
-                'London', 
-                'TP HCM', 
-                'Tokyo', 
-                '0;2', 
-                'Hà Nội và TP HCM đều là TP của VN',
-                'multiple'
-            ]);
+        // Dòng hướng dẫn: Phải thêm 7 dấu phân cách trống để đủ 8 cột
+        fputcsv($handle, ['HƯỚNG DẪN: Không thay đổi tiêu đề cột dưới đây.', '', '', '', '', '', '', ''], $delimiter);
+        
+        // Tiêu đề cột (8 cột)
+        fputcsv($handle, [
+            'Câu hỏi', 'Đáp án A', 'Đáp án B', 'Đáp án C', 'Đáp án D', 
+            'Đáp án đúng (0-3)', 'Giải thích', 'Loại câu hỏi'
+        ], $delimiter);
+        
+        // Dữ liệu mẫu (8 cột)
+        $data = [
+            ['Thủ đô Việt Nam?', 'Hà Nội', 'TP HCM', 'Đà Nẵng', 'Huế', '0', 'Hà Nội là thủ đô VN', 'single'],
+            ['Những thành phố nào thuộc Việt Nam?', 'Hà Nội', 'London', 'TP HCM', 'Tokyo', '0;2', 'Hà Nội và TP HCM đều là TP của VN', 'multiple'],
+            ['Việt Nam nằm ở khu vực Đông Nam Á phải không?', 'Đúng', 'Sai', '', '', 'true', 'Việt Nam là một quốc gia thuộc khu vực ĐNA', 'truefalse']
+        ];
 
-            fclose($handle);
-        }, 200, [
-            'Content-Type' => 'text/csv; charset=utf-8',
-            'Content-Disposition' => 'attachment; filename="Template_Cau_Hoi.csv"',
-        ]);
+        foreach ($data as $row) {
+            fputcsv($handle, $row, $delimiter);
+        }
+        fclose($handle);
+    }, 200, [
+        'Content-Type' => 'text/csv; charset=utf-8',
+        'Content-Disposition' => 'attachment; filename="Template_Cau_Hoi.csv"',
+    ]);
 
-        return $response;
-    }
+    return $response;
+}
 
     public function templateExam()
     {
         $response = new StreamedResponse(function () {
             $handle = fopen('php://output', 'w');
-            
-            // BOM cho UTF-8 để hiển thị đúng tiếng Việt trong Excel
-            fprintf($handle, chr(0xEF).chr(0xBB).chr(0xBF));
+            fwrite($handle, "\xEF\xBB\xBF");
 
             // 1. Dòng thông tin bài thi (Header chính)
             fputcsv($handle, ['Tên bài thi', 'Mô tả', 'Thời gian (phút)', 'Điểm đậu (%)']);
@@ -86,7 +66,7 @@ class ExcelService
             ];
 
             foreach ($questions as $q) {
-                fputcsv($handle, $q);
+               fputcsv($handle, $q);
             }
 
             fclose($handle);
@@ -100,46 +80,75 @@ class ExcelService
 
     public function importExam($filePath)
     {
-        
         $handle = fopen($filePath, 'r');
-        
-        // 1. Bỏ qua các dòng tiêu đề (Dòng 1, 2)
-        fgetcsv($handle); // Dòng: Tên bài thi, Mô tả...
-        $examData = fgetcsv($handle); // Dòng: Dữ liệu bài thi mẫu
 
-        // 2. Lưu bài thi vào database
+        // 1. Bỏ dòng tiêu đề đầu tiên (Tên bài thi, Mô tả...)
+        fgetcsv($handle);
+
+        // 2. Dòng dữ liệu bài thi
+        $examData = fgetcsv($handle);
+
         $exam = Exam::create([
             'user_id'     => Auth::id(),
             'title'       => $examData[0],
-            'description' => $examData[1],
-            'duration'    => $examData[2],
-            'pass_mark'   => $examData[3],
+            'description' => $examData[1] ?? '',
+            'duration'    => $examData[2] ?? 30,
+            'passMark'    => $examData[3] ?? 60, // sửa từ pass_mark -> passMark
         ]);
 
-        // 3. Bỏ qua dòng trống và dòng header câu hỏi
-        fgetcsv($handle); // Dòng trống
-        fgetcsv($handle); // Dòng header: Câu hỏi, Đáp án A...
+        // 3. Đọc tiếp và LINH ĐỘNG xác định có dòng trống / header câu hỏi hay không
+        $pos = ftell($handle);
+        $peek = fgetcsv($handle);
+
+        while ($peek !== FALSE) {
+            $firstCell = trim($peek[0] ?? '');
+
+            // Dòng trống -> bỏ qua, đọc dòng kế tiếp
+            if ($firstCell === '') {
+                $pos = ftell($handle);
+                $peek = fgetcsv($handle);
+                continue;
+            }
+
+            // Dòng header câu hỏi (không phải dữ liệu câu hỏi thật) -> bỏ qua
+            if (mb_strtolower($firstCell) === mb_strtolower('Câu hỏi')) {
+                $pos = ftell($handle);
+                $peek = fgetcsv($handle);
+                continue;
+            }
+
+            // Không phải dòng trống, không phải header -> đây chính là câu hỏi đầu tiên
+            break;
+        }
+
+        // Quay lại đúng vị trí bắt đầu của dòng câu hỏi đầu tiên
+        fseek($handle, $pos);
 
         // 4. Lặp và lưu câu hỏi
         while (($data = fgetcsv($handle)) !== FALSE) {
-            if (empty($data[0])) continue; // Bỏ qua dòng trống nếu có
-            $type = $data[7] ?? 'single'; // Lấy cột loại câu hỏi
-            $correctRaw = $data[5];       // Ví dụ: "0" hoặc "0|2"
+            if (empty($data[0])) continue; // bỏ dòng trống lẻ tẻ nếu có
+
+            $type = strtolower(trim($data[7] ?? 'single'));
+            $correctRaw = $data[5] ?? '0';
 
             if ($type === 'multiple') {
-                // Chuyển "0;2" thành mảng số [0, 2]
+                // "0;2" -> [0, 2]
                 $correctArray = array_map('intval', explode(';', $correctRaw));
+            } elseif ($type === 'truefalse') {
+                // giữ nguyên dạng chuỗi '0'/'1' hoặc chuyển sang 'true'/'false' tùy theo
+                // cách front-end của bạn đang lưu (xem examApp() dùng 'true'/'false')
+                $correctArray = [(string) trim($correctRaw)];
             } else {
-                // Chuyển "0" thành mảng số [0]
-                $correctArray = [$correctRaw];
+                $correctArray = [(int) trim($correctRaw)];
             }
+
             Question::create([
-                'examId'        => $exam->id,
+                'examId'         => $exam->id,
                 'text'           => $data[0],
-                'options'        => [$data[1], $data[2], $data[3], $data[4]],
+                'options'        => [$data[1] ?? '', $data[2] ?? '', $data[3] ?? '', $data[4] ?? ''],
                 'correctAnswers' => $correctArray,
-                'explanation'    => $data[6],
-                'type'           => $data[7],
+                'explanation'    => $data[6] ?? '',
+                'type'           => $type,
             ]);
         }
 

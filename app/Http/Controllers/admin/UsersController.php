@@ -11,11 +11,6 @@ use Illuminate\Validation\Rule;
 
 class UsersController extends Controller
 {
-    private const COLORS = [
-        '#6366f1', '#10b981', '#f59e0b', '#ef4444',
-        '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16',
-    ];
-
     // ─── Page ────────────────────────────────────────────────────────────────
 
     public function index(): \Illuminate\View\View
@@ -37,13 +32,19 @@ class UsersController extends Controller
         $users = User::query()
             ->search($request->input('search'))
             ->ofRole($request->input('role'))
-            ->ofPlan($request->input('plan'))
             ->ofStatus($request->input('status'))
             ->orderByDesc('created_at')
             ->paginate($perPage);
 
+        // 'plan' không phải cột trên bảng users (suy ra từ Subscription đang
+        // active), nên phải lọc SAU khi đã format từng user.
+        $planFilter = $request->input('plan');
+        $items = $users->getCollection()
+            ->map(fn (User $u) => $this->formatUser($u))
+            ->when($planFilter, fn ($c) => $c->filter(fn ($row) => $row['plan'] === $planFilter)->values());
+
         return response()->json([
-            'data'         => $users->map(fn (User $u) => $this->formatUser($u)),
+            'data'         => $items,
             'total'        => $users->total(),
             'current_page' => $users->currentPage(),
             'last_page'    => $users->lastPage(),
@@ -62,21 +63,34 @@ class UsersController extends Controller
             'name'     => 'required|string|max:100',
             'email'    => 'required|email|unique:users,email',
             'password' => 'required|string|min:6',
-            'role'     => ['required', Rule::in(['admin', 'student', 'instructor'])],
-            'plan'     => ['required', Rule::in(['free', 'basic', 'premium'])],
+            'role'     => ['required', Rule::in(['admin', 'user'])],
+            // dùng để tạo Subscription ban đầu, KHÔNG lưu vào bảng users
+            'plan'     => ['required', Rule::in(['free', 'pro', 'premium'])],
         ]);
 
         $user = User::create([
-            ...$data,
+            'name'     => $data['name'],
+            'email'    => $data['email'],
             'password' => Hash::make($data['password']),
-            'progress' => 0,
+            'role'     => $data['role'],
             'status'   => 'active',
-            'color'    => self::COLORS[array_rand(self::COLORS)],
         ]);
+
+        if ($data['plan'] !== 'free') {
+            $plan = \App\Models\Plan::where('slug', $data['plan'])->first();
+            if ($plan) {
+                $user->subscriptions()->create([
+                    'plan_id'   => $plan->id,
+                    'status'    => 'active',
+                    'starts_at' => now(),
+                    'ends_at'   => now()->addDays($plan->duration_days ?: 30),
+                ]);
+            }
+        }
 
         return response()->json([
             'message' => 'Đã thêm người dùng!',
-            'user'    => $this->formatUser($user),
+            'user'    => $this->formatUser($user->fresh()),
         ], 201);
     }
 
@@ -90,8 +104,7 @@ class UsersController extends Controller
         $data = $request->validate([
             'name'  => 'sometimes|required|string|max:100',
             'email' => ['sometimes', 'required', 'email', Rule::unique('users')->ignore($user->id)],
-            'role'  => ['sometimes', Rule::in(['admin', 'student', 'instructor'])],
-            'plan'  => ['sometimes', Rule::in(['free', 'basic', 'premium'])],
+            'role'  => ['sometimes', Rule::in(['admin', 'user'])],
         ]);
 
         $user->update($data);
@@ -102,11 +115,43 @@ class UsersController extends Controller
         ]);
     }
 
+    /**
+     * GET /admin/users/{user}
+     *
+     * QUAN TRỌNG: gói hiển thị và trạng thái/ngày hết hạn phải lấy từ CÙNG
+     * một Subscription (activeSubscription()) — tránh tình trạng "Gói: Free"
+     * nhưng "Sắp hết hạn 02/08/2026" (2 nguồn dữ liệu khác nhau, mâu thuẫn).
+     */
+    public function show(User $user): JsonResponse
+    {
+        $subscription = $user->activeSubscription(); // null nếu không có gói trả phí đang active
+        $plan         = $subscription?->plan ?? \App\Models\Plan::where('slug', 'free')->first();
+
+        return response()->json([
+            'user' => [
+                'id'       => $user->id,
+                'name'     => $user->name,
+                'email'    => $user->email,
+                'role'     => $user->role,
+                'status'   => $user->status,
+                'joinDate' => $user->created_at->format('d/m/Y'),
+                'plan'     => [
+                    'slug'           => $plan->slug ?? 'free',
+                    'name'           => $plan->name ?? 'Miễn phí',
+                    'formattedPrice' => $plan?->formattedPrice() ?? 'Miễn phí',
+                ],
+                'subscription' => $subscription ? [
+                    'status'         => $subscription->status,
+                    'startsAt'       => optional($subscription->starts_at)->format('d/m/Y'),
+                    'endsAt'         => optional($subscription->ends_at)->format('d/m/Y'),
+                    'isExpiringSoon' => $subscription->isExpiringSoon(),
+                ] : null,
+            ],
+        ]);
+    }
+
     // ─── API: destroy ─────────────────────────────────────────────────────────
 
-    /**
-     * DELETE /admin/users/{user}
-     */
     public function destroy(User $user): JsonResponse
     {
         $user->delete();
@@ -114,12 +159,8 @@ class UsersController extends Controller
         return response()->json(['message' => 'Đã xóa người dùng']);
     }
 
-    
     // ─── API: toggle status ───────────────────────────────────────────────────
 
-    /**
-     * PATCH /admin/users/{user}/toggle-status
-     */
     public function toggleStatus(User $user): JsonResponse
     {
         $user->update([
@@ -136,10 +177,6 @@ class UsersController extends Controller
 
     // ─── API: bulk ban ────────────────────────────────────────────────────────
 
-    /**
-     * POST /admin/users/bulk-ban
-     * Body: { ids: [1, 2, 3] }
-     */
     public function bulkBan(Request $request): JsonResponse
     {
         $request->validate(['ids' => 'required|array', 'ids.*' => 'integer|exists:users,id']);
@@ -151,10 +188,6 @@ class UsersController extends Controller
 
     // ─── API: bulk delete ─────────────────────────────────────────────────────
 
-    /**
-     * POST /admin/users/bulk-delete
-     * Body: { ids: [1, 2, 3] }
-     */
     public function bulkDelete(Request $request): JsonResponse
     {
         $request->validate(['ids' => 'required|array', 'ids.*' => 'integer|exists:users,id']);
@@ -166,18 +199,24 @@ class UsersController extends Controller
 
     // ─── Private helpers ──────────────────────────────────────────────────────
 
+    /**
+     * Dùng cho danh sách (bảng) — trả 'plan' dạng string (slug) để khớp với
+     * JS phía trước (u.plan.charAt(...), so sánh 'free'/'pro'/'premium').
+     * Luôn lấy từ Subscription đang active, KHÔNG bao giờ đọc $u->plan
+     * (cột này không tồn tại trên bảng users).
+     */
     private function formatUser(User $u): array
     {
+        $plan = $u->currentPlan(); // model đã tự fallback về gói Free
+
         return [
             'id'       => $u->id,
             'name'     => $u->name,
             'email'    => $u->email,
             'role'     => $u->role,
-            'plan'     => $u->plan,
-            'progress' => $u->progress,
+            'plan'     => $plan->slug ?? 'free',
             'status'   => $u->status,
-            'color'    => $u->color,
-            'joinDate' => $u->join_date,   // accessor dd/mm/yyyy
+            'joinDate' => $u->created_at->format('d/m/Y'),
         ];
     }
 

@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Str;
 use App\Services\SupabaseService;
+use App\Models\NewsTag;
+use App\Models\User;
 class NewsArticle extends Model
 {
     protected $fillable = [
@@ -32,13 +34,33 @@ class NewsArticle extends Model
                     ->withTimestamps();
     }
 
-    // public function bookmarkedBy(): BelongsToMany
-    // {
-    //     return $this->belongsToMany(User::class, 'news_bookmarks', 'article_id', 'user_id')
-    //                 ->withTimestamps();
-    // }
+    public function bookmarkedBy(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'news_bookmarks', 'article_id', 'user_id')
+                    ->withTimestamps();
+    }
 
     // ── Scopes ──────────────────────────────────────────────────
+
+    public function scopeDueToPublish(Builder $query): Builder
+    {
+        return $query->where('status', 'scheduled')
+                    ->whereNotNull('scheduled_at')
+                    ->where('scheduled_at', '<=', now());
+    }
+
+    public static function publishDueScheduled(): int
+    {
+        $count = 0;
+        static::dueToPublish()->get()->each(function (self $article) use (&$count) {
+            $article->update([
+                'status'       => 'published',
+                'published_at' => $article->published_at ?? $article->scheduled_at,
+            ]);
+            $count++;
+        });
+        return $count;
+    }
 
     public function scopePublished(Builder $query): Builder
     {

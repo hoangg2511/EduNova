@@ -6,7 +6,6 @@ use App\Services\AIAgentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use App\Http\Controllers\NotificationController;
 use App\Models\Message;
 use App\Models\Exam;
 use App\Models\Question;
@@ -14,11 +13,13 @@ use App\Models\Security;
 use App\Models\Event;
 use App\Models\Deck;
 use App\Models\Card;
-
+use App\Models\Notification;
+use App\Models\UserLog;
 class ChatbotController extends Controller
 {
     public function __construct(private AIAgentService $aiService) {}
 
+    private const CLARIFY_PREFIX = 'HOI_LAI:';
     // ─────────────────────────────────────────────────────────────────────────
     // SYSTEM PROMPTS
     // ─────────────────────────────────────────────────────────────────────────
@@ -243,6 +244,18 @@ PROMPT
         . $context;
     }
 
+    private function extractClarifyingQuestion(string $raw): ?string
+    {
+        $trimmed = ltrim($raw);
+
+        if (stripos($trimmed, self::CLARIFY_PREFIX) === 0) {
+            $question = trim(substr($trimmed, strlen(self::CLARIFY_PREFIX)));
+            return $question !== '' ? $question : null;
+        }
+
+        return null;
+    }
+
     private function promptCreateFlashcard(string $context): string
     {
                 return <<<PROMPT
@@ -361,6 +374,142 @@ PROMPT
         return null;
     }
 
+    private function normalizeExamPayload(?array $data): array
+    {
+        $normalized = [
+            'title' => trim((string) ($data['title'] ?? 'Bài thi chưa đặt tên')),
+            'description' => trim((string) ($data['description'] ?? '')),
+            'duration' => max(1, (int) ($data['duration'] ?? 30)),
+            'passMark' => min(100, max(0, (int) ($data['passMark'] ?? 60))),
+            'questions' => [],
+        ];
+
+        if (!is_array($data)) {
+            return $normalized;
+        }
+
+        $rawQuestions = $data['questions'] ?? [];
+        if (!is_array($rawQuestions)) {
+            return $normalized;
+        }
+
+        foreach ($rawQuestions as $q) {
+            if (!is_array($q)) {
+                continue;
+            }
+
+            $text = trim((string) ($q['text'] ?? ''));
+            if ($text === '') {
+                continue;
+            }
+
+            $type = in_array(($q['type'] ?? ''), ['single', 'multiple', 'truefalse'])
+                ? (string) $q['type']
+                : 'single';
+
+            $options = $q['options'] ?? [];
+            if (!is_array($options)) {
+                $options = [];
+            }
+
+            $options = array_values(array_filter(array_map(function ($option) {
+                return trim((string) $option);
+            }, $options), static fn ($option) => $option !== ''));
+
+            $correctAnswers = $q['correctAnswers'] ?? [];
+            if (!is_array($correctAnswers)) {
+                $correctAnswers = [$correctAnswers];
+            }
+
+            $normalizedCorrectAnswers = [];
+            $boolLike = count($options) === 2 && (
+                in_array(strtolower($options[0] ?? ''), ['đúng', 'sai', 'true', 'false']) ||
+                in_array(strtolower($options[1] ?? ''), ['đúng', 'sai', 'true', 'false'])
+            );
+
+            if ($boolLike && $type !== 'truefalse') {
+                $type = 'truefalse';
+                $options = ['true', 'false'];
+                $firstAnswer = $correctAnswers[0] ?? null;
+                if (is_int($firstAnswer)) {
+                    $normalizedCorrectAnswers = $firstAnswer === 1 ? ['false'] : ['true'];
+                } else {
+                    $firstAnswerText = strtolower((string) $firstAnswer);
+                    $normalizedCorrectAnswers = in_array($firstAnswerText, ['false', 'sai', '0', 'no'])
+                        ? ['false']
+                        : ['true'];
+                }
+            } elseif ($type === 'truefalse') {
+                $options = ['true', 'false'];
+                $firstAnswer = $correctAnswers[0] ?? null;
+                if (is_int($firstAnswer)) {
+                    $normalizedCorrectAnswers = $firstAnswer === 1 ? ['false'] : ['true'];
+                } else {
+                    $firstAnswerText = strtolower((string) $firstAnswer);
+                    $normalizedCorrectAnswers = in_array($firstAnswerText, ['false', 'sai', '0', 'no'])
+                        ? ['false']
+                        : ['true'];
+                }
+            } else {
+                if (count($options) < 2) {
+                    continue;
+                }
+
+                foreach ($correctAnswers as $answer) {
+                    if (is_int($answer)) {
+                        $normalizedCorrectAnswers[] = $answer;
+                    } elseif (is_string($answer) && preg_match('/^\d+$/', trim($answer))) {
+                        $normalizedCorrectAnswers[] = (int) trim($answer);
+                    }
+                }
+
+                $normalizedCorrectAnswers = array_values(array_unique($normalizedCorrectAnswers));
+                if ($type === 'single') {
+                    $normalizedCorrectAnswers = array_slice($normalizedCorrectAnswers, 0, 1);
+                } elseif (count($normalizedCorrectAnswers) < 2) {
+                    $type = 'single';
+                    $normalizedCorrectAnswers = array_slice($normalizedCorrectAnswers, 0, 1);
+                }
+            }
+
+            if ($type === 'single' && empty($normalizedCorrectAnswers)) {
+                $normalizedCorrectAnswers = [0];
+            }
+
+            $normalized['questions'][] = [
+                'text' => $text,
+                'type' => $type,
+                'points' => max(1, (int) ($q['points'] ?? 1)),
+                'options' => $options,
+                'correctAnswers' => $normalizedCorrectAnswers,
+                'explanation' => trim((string) ($q['explanation'] ?? '')) !== ''
+                    ? trim((string) ($q['explanation'] ?? ''))
+                    : 'Đáp án được xác định theo nội dung câu hỏi.',
+            ];
+        }
+
+        return $normalized;
+    }
+
+    private function createNotification(int $userId, string $type, string $title, string $body, ?array $data = null): void
+    {
+        try {
+            Notification::create([
+                'user_id' => $userId,
+                'type' => $type,
+                'title' => $title,
+                'body' => $body,
+                'data' => $data,
+            ]);
+        } catch (\Exception $e) {
+            Log::warning('Chatbot notification failed', [
+                'user_id' => $userId,
+                'type' => $type,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // PUBLIC ENDPOINTS
     // ─────────────────────────────────────────────────────────────────────────
@@ -433,14 +582,32 @@ PROMPT
             // CHAT thường
             $assistantContent = '';
 
-            return response()->stream(function () use ($message, $systemPrompt, &$assistantContent, $userId) {
-                $this->aiService->streamOllama($message, $systemPrompt, function (string $chunk) use (&$assistantContent) {
-                    if ($chunk === '') return;
-                    $assistantContent .= $chunk;
-                    echo $chunk;
+            // ── Kiểm tra token trước khi cho chat ──────────────────────────────────
+            $estimatedCost = $this->estimateTokens($message) + 200; // 200 token buffer cho reply
+            if (!$this->hasEnoughTokens($userId, $estimatedCost)) {
+                $log = UserLog::where('user_id', $userId)->first();
+                $remaining = $log?->token_limit ?? 0;
+                return response()->stream(function () use ($remaining) {
+                    echo "⚠️ Bạn đã hết token chat (còn {$remaining} token). " .
+                        "Vui lòng nâng cấp gói để tiếp tục.";
                     @ob_flush(); @flush();
-                });
+                }, 200, ['Content-Type' => 'text/plain; charset=utf-8']);
+            }
+            // ───────────────────────────────────────────────────────────────────────
 
+            return response()->stream(function () use ($message, $systemPrompt, &$assistantContent, $userId) {
+                $this->aiService->streamOllama(
+                    $message,
+                    $systemPrompt,
+                    function (string $chunk) use (&$assistantContent) {
+                        if ($chunk === '') return;
+                        $assistantContent .= $chunk;
+                        echo $chunk;
+                        @ob_flush(); @flush();
+                    }
+                );
+
+                // Lưu message history
                 try {
                     if (!empty(trim($assistantContent))) {
                         Message::create(['user_id' => $userId, 'role' => 'ai', 'content' => $assistantContent]);
@@ -448,6 +615,15 @@ PROMPT
                 } catch (\Exception $e) {
                     Log::warning('Cannot persist assistant message: ' . $e->getMessage());
                 }
+
+                // ── Trừ token SAU KHI đã có đủ reply ──────────────────────────────
+                try {
+                    $this->consumeTokens($userId, $message, $assistantContent);
+                } catch (\Exception $e) {
+                    Log::warning('consumeTokens failed: ' . $e->getMessage());
+                }
+                // ───────────────────────────────────────────────────────────────────
+
             }, 200, [
                 'Content-Type'      => 'text/plain; charset=utf-8',
                 'Cache-Control'     => 'no-cache, no-store, must-revalidate',
@@ -491,7 +667,10 @@ PROMPT
             return response()->stream(function () use ($errorMsg) {
                 echo $errorMsg;
                 @ob_flush(); @flush();
-            }, 200, ['Content-Type' => 'text/plain; charset=utf-8']);
+            }, 200, [
+                'Content-Type'     => 'text/plain; charset=utf-8',
+                'X-Chat-Tag-Status'=> 'error',
+            ]);
         }
 
         Log::info('handleTagStream: AI raw output received', [
@@ -499,6 +678,38 @@ PROMPT
             'raw_length' => strlen($rawOutput),
             'preview'    => mb_substr($rawOutput, 0, 500),
         ]);
+
+        // ── Bước 1.5: AI cần hỏi thêm thông tin (chỉ áp dụng ý nghĩa với create_exam,
+        //     nhưng kiểm tra chung không ảnh hưởng các tag khác vì chúng không dùng tiền tố này) ──
+        $clarifyingQuestion = $this->extractClarifyingQuestion($rawOutput);
+
+        if ($clarifyingQuestion !== null) {
+            try {
+                Message::create(['user_id' => $userId, 'role' => 'ai', 'content' => $clarifyingQuestion]);
+            } catch (\Exception $e) {
+                Log::warning('Cannot persist clarifying question: ' . $e->getMessage());
+            }
+
+            Log::info('handleTagStream: AI asked clarifying question', [
+                'tag'      => $tag,
+                'question' => $clarifyingQuestion,
+            ]);
+
+            return response()->stream(function () use ($clarifyingQuestion) {
+                $chunks = str_split($clarifyingQuestion, 4);
+                foreach ($chunks as $chunk) {
+                    echo $chunk;
+                    @ob_flush(); @flush();
+                    usleep(8000);
+                }
+            }, 200, [
+                'Content-Type'      => 'text/plain; charset=utf-8',
+                'Cache-Control'     => 'no-cache, no-store, must-revalidate',
+                'X-Accel-Buffering' => 'no',
+                'X-Chat-Tag-Status' => 'ask', // ← FE sẽ giữ nguyên tag để tiếp tục hội thoại
+                'X-Chat-Tag'        => $tag,
+            ]);
+        }
 
         // ── Bước 2: Parse JSON ──
         $data = $this->parseAiJson($rawOutput);
@@ -532,6 +743,7 @@ PROMPT
             'Content-Type'      => 'text/plain; charset=utf-8',
             'Cache-Control'     => 'no-cache, no-store, must-revalidate',
             'X-Accel-Buffering' => 'no',
+            'X-Chat-Tag-Status' => 'done', // ← FE sẽ reset tag vì đã xong (thành công hoặc lỗi DB)
         ]);
     }
 
@@ -540,22 +752,13 @@ PROMPT
     // ─────────────────────────────────────────────────────────────────────────
 
     private function handleExamCreation(int $userId, ?array $data, string $rawOutput): array
-    {
-        // Validate dữ liệu từ AI
-        if (!$data) {
-            Log::error('handleExamCreation: JSON parse returned null', [
-                'raw' => mb_substr($rawOutput, 0, 800),
-            ]);
-            return [
-                "❌ AI trả về dữ liệu không phải JSON hợp lệ. Vui lòng thử lại.\n\n" .
-                "_Debug: Xem laravel.log để biết thêm chi tiết._",
-                "[create_exam failed - invalid JSON]",
-            ];
-        }
+     {
+        $data = $this->normalizeExamPayload($data);
 
-        if (empty($data['questions']) || !is_array($data['questions'])) {
+        // Validate dữ liệu từ AI
+        if (empty($data['questions'])) {
             Log::error('handleExamCreation: missing or empty questions array', [
-                'data_keys' => array_keys($data),
+                'data_keys' => is_array($data) ? array_keys($data) : null,
                 'raw'       => mb_substr($rawOutput, 0, 800),
             ]);
             return [
@@ -609,17 +812,15 @@ PROMPT
             $skippedCount  = 0;
 
             foreach ($data['questions'] as $idx => $q) {
-                // Validate type
-                $type = in_array($q['type'] ?? '', ['single', 'multiple', 'truefalse'])
-                    ? $q['type']
-                    : 'single';
+                $text = trim((string) ($q['text'] ?? ''));
+                if ($text === '') {
+                    $skippedCount++;
+                    continue;
+                }
 
-                // Validate options
-                if ($type === 'truefalse') {
-                    $options = ['true', 'false'];
-                } elseif (!empty($q['options']) && is_array($q['options'])) {
-                    $options = $q['options'];
-                } else {
+                $type = $q['type'] ?? 'single';
+                $options = $q['options'] ?? [];
+                if (!is_array($options) || count($options) < 2) {
                     Log::warning("handleExamCreation: question #{$idx} has no valid options, skipping", [
                         'question' => $q,
                     ]);
@@ -627,7 +828,6 @@ PROMPT
                     continue;
                 }
 
-                // Validate correctAnswers
                 $correctAnswers = $q['correctAnswers'] ?? [];
                 if (!is_array($correctAnswers) || empty($correctAnswers)) {
                     Log::warning("handleExamCreation: question #{$idx} has no correctAnswers, skipping", [
@@ -637,35 +837,6 @@ PROMPT
                     continue;
                 }
 
-                // Đảm bảo text không rỗng
-                $text = trim($q['text'] ?? '');
-                if (empty($text)) {
-                    $skippedCount++;
-                    continue;
-                }
-                foreach ($data['questions'] as $idx => &$q) {
-                    $opts = array_map('strtolower', $q['options'] ?? []);
-                    $isBoolLike = count($opts) === 2 && 
-                        (in_array('đúng', $opts) || in_array('sai', $opts) || 
-                        in_array('true', $opts) || in_array('false', $opts));
-
-                    if ($isBoolLike && $q['type'] !== 'truefalse') {
-                        // Tự sửa: tìm xem đáp án đúng là "đúng/true" hay "sai/false"
-                        $correctIdx = $q['correctAnswers'][0] ?? 0;
-                        $wasTrue = in_array(strtolower($q['options'][$correctIdx] ?? ''), ['đúng', 'true']);
-                        $q['type'] = 'truefalse';
-                        $q['options'] = ['true', 'false'];
-                        $q['correctAnswers'] = [$wasTrue ? 'true' : 'false'];
-                    }
-
-                    if ($q['type'] === 'single' && count($q['correctAnswers'] ?? []) > 1) {
-                        $q['type'] = 'multiple';
-                    }
-                    if ($q['type'] === 'multiple' && count($q['correctAnswers'] ?? []) <= 1) {
-                        $q['type'] = 'single';
-                    }
-                }
-                unset($q);
                 Question::create([
                     'examId'         => $exam->id,
                     'text'           => $text,
@@ -673,7 +844,7 @@ PROMPT
                     'points'         => max(1, (int) ($q['points'] ?? 1)),
                     'options'        => $options,
                     'correctAnswers' => $correctAnswers,
-                    'explanation'    => trim($q['explanation'] ?? ''),
+                    'explanation'    => trim((string) ($q['explanation'] ?? '')),
                 ]);
 
                 $questionCount++;
@@ -726,7 +897,7 @@ PROMPT
                 $examUrl = '/exams/' . $exam->id;
             }
 
-            NotificationController::notify(
+            $this->createNotification(
                 $userId,
                 'ai_result',
                 'Bài thi AI đã tạo xong',
@@ -749,7 +920,7 @@ PROMPT
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
+    //  ─────────────────────────────────────────────────────────────────────────
     // SCHEDULE CREATION
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -813,7 +984,7 @@ PROMPT
                 "🔗 [Xem lịch của bạn]({$calendarUrl})";
 
             if ($created > 0) {
-                NotificationController::notify(
+                $this->createNotification(
                     $userId,
                     'ai_result',
                     'Chatbot đã tạo lịch học xong',
@@ -895,7 +1066,7 @@ PROMPT
                 $deckUrl = '/flashcards/' . $deck->id;
             }
 
-            NotificationController::notify(
+            $this->createNotification(
                 $userId,
                 'ai_result',
                 'Flashcard AI đã sẵn sàng',
@@ -982,5 +1153,58 @@ PROMPT
             Log::error('Flashcard Error: ' . $e->getMessage());
             return response()->json(['success' => false, 'message' => 'Lỗi khi tạo flashcard'], 500);
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // TOKEN HELPERS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Ước tính số token từ một đoạn text.
+     * Công thức đơn giản: ~4 ký tự = 1 token (chuẩn OpenAI/LLaMA).
+     */
+    private function estimateTokens(string $text): int
+    {
+        return (int) ceil(mb_strlen($text) / 4);
+    }
+
+    /**
+     * Kiểm tra user còn đủ token không.
+     * Trả về true nếu còn, false nếu hết hoặc không có log.
+     */
+    private function hasEnoughTokens(int $userId, int $required = 1): bool
+    {
+        $log = UserLog::where('user_id', $userId)->first();
+        if (!$log) return false;                        // không có log → chặn
+        return $log->token_limit >= $required;
+    }
+
+    /**
+     * Trừ token sau khi AI trả lời xong.
+     * Trừ theo tổng: token(user message) + token(AI reply).
+     * Không cho phép về âm.
+     */
+    private function consumeTokens(int $userId, string $userMessage, string $aiReply): void
+    {
+        $used = $this->estimateTokens($userMessage) + $this->estimateTokens($aiReply);
+
+        $affected = UserLog::where('user_id', $userId)
+            ->where('token_limit', '>', 0)
+            ->decrement('token_limit', $used);
+
+        // Nếu decrement vượt quá số dư (edge case race condition), clamp về 0
+        if (!$affected) {
+            UserLog::where('user_id', $userId)
+                ->update(['token_limit' => 0]);
+        }
+
+        Log::info('Token consumed', [
+            'user_id'   => $userId,
+            'used'      => $used,
+            'breakdown' => [
+                'user_msg' => $this->estimateTokens($userMessage),
+                'ai_reply' => $this->estimateTokens($aiReply),
+            ],
+        ]);
     }
 }

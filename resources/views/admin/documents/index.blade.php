@@ -11,6 +11,8 @@
     .skeleton { background: linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 50%,#f1f5f9 75%);
                 background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius:8px; }
     @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+    @keyframes pulse-ai { 0%,100%{opacity:1} 50%{opacity:.55} }
+    .ai-pulse { animation: pulse-ai 1.2s ease-in-out infinite; }
 </style>
 @endpush
 
@@ -66,20 +68,46 @@
     </div>
 
     {{-- TABS --}}
-    <div class="flex items-center gap-1 bg-white border border-slate-200 rounded-2xl p-1.5 w-fit">
-        <template x-for="t in tabs" :key="t.key">
-            <button @click="tab=t.key"
-                class="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all"
-                :class="tab===t.key ? 'bg-slate-900 text-white shadow' : 'text-slate-500 hover:text-slate-700'">
-                <i :data-lucide="t.icon" class="w-4 h-4"></i>
-                <span x-text="t.label"></span>
-                <span x-show="t.count > 0"
-                    class="text-[10px] font-black px-1.5 py-0.5 rounded-full"
-                    :class="tab===t.key ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-600'"
-                    x-text="t.count">
+    <div class="flex items-center justify-between gap-3 flex-wrap">
+        <div class="flex items-center gap-1 bg-white border border-slate-200 rounded-2xl p-1.5 w-fit">
+            <template x-for="t in tabs" :key="t.key">
+                <button @click="tab=t.key"
+                    class="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all"
+                    :class="tab===t.key ? 'bg-slate-900 text-white shadow' : 'text-slate-500 hover:text-slate-700'">
+                    <i :data-lucide="t.icon" class="w-4 h-4"></i>
+                    <span x-text="t.label"></span>
+                    <span x-show="t.count > 0"
+                        class="text-[10px] font-black px-1.5 py-0.5 rounded-full"
+                        :class="tab===t.key ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-600'"
+                        x-text="t.count">
+                    </span>
+                </button>
+            </template>
+        </div>
+
+        {{-- Nút xét duyệt hàng loạt bằng AI, chỉ hiện ở tab chờ duyệt --}}
+        <div x-show="tab==='pending' && pendingDocs.length > 0"
+            class="flex items-center gap-3 px-4 py-2.5 bg-gradient-to-r from-violet-50 to-indigo-50 border border-violet-200 rounded-xl shadow-sm">
+            <div class="flex items-center gap-2">
+                <i data-lucide="bot" class="w-4 h-4 text-violet-600" :class="bulkAiRunning ? 'ai-pulse' : ''"></i>
+                <span class="text-sm font-semibold text-violet-700"
+                    x-text="bulkAiRunning ? `AI đang xét duyệt (${bulkAiDone}/${bulkAiTotal})...` : 'Tự động xét duyệt bằng AI'"></span>
+            </div>
+
+            <button type="button"
+                @click="aiReviewAllPending()"
+                :disabled="bulkAiRunning"
+                :aria-checked="bulkAiRunning.toString()"
+                role="switch"
+                class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 ease-in-out
+                    disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-violet-300 focus:ring-offset-1"
+                :class="bulkAiRunning ? 'bg-violet-600' : 'bg-slate-200'">
+                <span class="inline-block transform rounded-full bg-white shadow transition-transform duration-200 ease-in-out"
+                    style="height:18px;width:18px"
+                    :class="bulkAiRunning ? 'translate-x-6' : 'translate-x-1'">
                 </span>
             </button>
-        </template>
+        </div>
     </div>
 
     {{-- ═══ TAB: PENDING ═══ --}}
@@ -154,6 +182,15 @@
                             <i data-lucide="x" class="w-3.5 h-3.5"></i> Từ chối
                         </button>
 
+                        {{-- NÚT MỚI: tự động xét duyệt bằng AI cho từng tài liệu --}}
+                        <button @click="aiReviewDoc(doc)"
+                            :disabled="processingIds.includes(doc.id)"
+                            title="AI phân tích tên/mô tả tài liệu và tự quyết định phê duyệt/từ chối"
+                            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-violet-600 bg-violet-50 rounded-xl hover:bg-violet-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                            <i data-lucide="bot" class="w-3.5 h-3.5" :class="processingIds.includes(doc.id) ? 'ai-pulse' : ''"></i>
+                            <span x-text="processingIds.includes(doc.id) ? 'AI đang xét...' : 'AI xét duyệt'"></span>
+                        </button>
+
                         <div class="ml-auto flex items-center gap-1 text-xs text-slate-400">
                             <i data-lucide="download" class="w-3 h-3"></i>
                             <span x-text="(doc.downloads ?? 0) + ' lượt tải'"></span>
@@ -184,6 +221,7 @@
                 <option value="approved">Đã duyệt</option>
                 <option value="pending">Chờ duyệt</option>
                 <option value="rejected">Từ chối</option>
+                   <option value="hidden">Đã ẩn</option>
             </select>
             <select x-model="docFilterSubject" class="px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 text-slate-700">
                 <option value="">Tất cả môn học</option>
@@ -225,14 +263,18 @@
                             <i :data-lucide="fileIcon(doc.type)" class="w-6 h-6" :style="`color:${fileColor(doc.type)}`"></i>
                         </div>
                         <span class="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                            :class="{'bg-emerald-50 text-emerald-600':doc.status==='approved','bg-amber-50 text-amber-600':doc.status==='pending','bg-rose-50 text-rose-600':doc.status==='rejected'}"
-                            x-text="{'approved':'Đã duyệt','pending':'Chờ duyệt','rejected':'Từ chối'}[doc.status]">
+                            :class="statusBadgeClass(doc)"
+                            x-text="statusLabel(doc)">
                         </span>
                     </div>
                     <h3 class="font-black text-slate-900 text-sm mb-1 line-clamp-2" x-text="doc.name"></h3>
                     <p class="text-xs text-slate-400">
                         <span x-text="doc.subject || 'Chưa phân loại'"></span>
                         <span x-show="doc.size"> · <span x-text="doc.size"></span></span>
+                    </p>
+                    <p x-show="doc.status==='hidden'"
+                        class="text-[10px] text-slate-500 mt-1.5 flex items-center gap-1">
+                        <i data-lucide="eye-off" class="w-3 h-3"></i> Đang ẩn khỏi kho tài liệu
                     </p>
                     <p x-show="doc.status==='rejected' && doc.rejection_reason"
                         class="text-[10px] text-rose-500 mt-1.5 line-clamp-1 italic"
@@ -259,7 +301,7 @@
             </div>
         </div>
 
-        <div x-show="!loading.all && viewMode==='list'" class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+        <div x-show="!loading.all && viewMode==='list'" class="bg-white rounded-2xl border border-slate-200 overflow-hidden" >
             <table class="w-full text-sm">
                 <thead>
                     <tr class="bg-slate-50 border-b border-slate-100">
@@ -275,7 +317,7 @@
                 </thead>
                 <tbody>
                     <template x-for="doc in filteredAllDocs" :key="doc.id">
-                        <tr class="tbl-row border-b border-slate-50">
+                        <tr @click="openPreview(doc)" class="tbl-row border-b border-slate-50 cursor-pointer hover:bg-slate-50">
                             <td class="px-5 py-3.5">
                                 <div class="flex items-center gap-3">
                                     <div class="w-8 h-8 rounded-xl flex items-center justify-center shrink-0" :style="`background:${fileColor(doc.type)}15`">
@@ -304,29 +346,45 @@
                             </td>
                             <td class="px-4 py-3.5 text-center">
                                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                                    :class="{'bg-emerald-50 text-emerald-600':doc.status==='approved','bg-amber-50 text-amber-600':doc.status==='pending','bg-rose-50 text-rose-600':doc.status==='rejected'}"
-                                    x-text="{'approved':'Đã duyệt','pending':'Chờ duyệt','rejected':'Từ chối'}[doc.status]">
+                                    :class="statusBadgeClass(doc)"
+                                    x-text="statusLabel(doc)">
                                 </span>
                             </td>
                             <td class="px-4 py-3.5 text-right text-[10px] text-slate-400" x-text="doc.reviewed_at ?? '—'"></td>
                             <td class="px-4 py-3.5">
                                 <div class="flex items-center justify-center gap-1">
-                                    <button @click="openPreview(doc)" class="p-1.5 rounded-lg hover:bg-indigo-50 transition-all">
+                                    <!-- <button @click.stop="openPreview(doc)" class="p-1.5 rounded-lg hover:bg-indigo-50 transition-all">
                                         <i data-lucide="eye" class="w-3.5 h-3.5 text-indigo-500"></i>
-                                    </button>
-                                    <button x-show="doc.status==='pending'" @click="approveDoc(doc)"
+                                    </button> -->
+                                    <button x-show="doc.status==='pending'" @click.stop="approveDoc(doc)"
                                         :disabled="processingIds.includes(doc.id)"
+                                        title="phê duyệt tài liệu"
                                         class="p-1.5 rounded-lg hover:bg-emerald-50 disabled:opacity-50 transition-all">
                                         <i data-lucide="check" class="w-3.5 h-3.5 text-emerald-500"></i>
                                     </button>
-                                    <button x-show="doc.status==='pending'" @click="openRejectModal(doc)"
+                                    <button x-show="doc.status==='pending'" @click.stop="openRejectModal(doc)"
                                         :disabled="processingIds.includes(doc.id)"
+                                        title="từ chối tài liệu"
                                         class="p-1.5 rounded-lg hover:bg-amber-50 disabled:opacity-50 transition-all">
                                         <i data-lucide="x" class="w-3.5 h-3.5 text-amber-500"></i>
                                     </button>
-                                    <button @click="deleteDoc(doc)" class="p-1.5 rounded-lg hover:bg-rose-50 transition-all">
-                                        <i data-lucide="trash-2" class="w-3.5 h-3.5 text-rose-500"></i>
+                                    <button x-show="doc.status==='pending'" @click.stop="toggleAiReview(doc)"
+                                        :disabled="processingIds.includes(doc.id)"
+                                        title="AI xét duyệt"
+                                        :class="doc.aiReviewEnabled ? 'p-1.5 rounded-lg bg-violet-100 text-violet-700' : 'p-1.5 rounded-lg hover:bg-violet-50 text-violet-500'"
+                                        class="disabled:opacity-50 transition-all">
+                                        <i data-lucide="bot" class="w-3.5 h-3.5" :class="processingIds.includes(doc.id) ? 'ai-pulse' : ''"></i>
                                     </button>
+                                    <button x-show="doc.status==='approved' || doc.status==='hidden'" @click.stop="toggleVisibility(doc)"
+                                        :disabled="processingIds.includes(doc.id)"
+                                        :title="doc.status==='hidden' ? 'Hiện lại tài liệu' : 'Ẩn tài liệu khỏi kho'"
+                                        class="p-1.5 rounded-lg disabled:opacity-50 transition-all"
+                                        :class="doc.status==='hidden' ? 'bg-slate-100 text-slate-400' : 'hover:bg-slate-100 text-slate-500'">
+                                        <i :data-lucide="doc.status==='hidden' ? 'eye-off' : 'eye'" class="w-3.5 h-3.5"></i>
+                                    </button>
+                                    <!-- <button @click.stop="deleteDoc(doc)" class="p-1.5 rounded-lg hover:bg-rose-50 transition-all">
+                                        <i data-lucide="trash-2" class="w-3.5 h-3.5 text-rose-500"></i>
+                                    </button> -->
                                 </div>
                             </td>
                         </tr>
@@ -525,7 +583,32 @@
                     <span>Đã xét duyệt lúc: </span>
                     <span class="font-semibold text-slate-600" x-text="selectedDoc?.reviewed_at"></span>
                 </div>
+                {{-- Toggle ẩn/hiện — chỉ hiển thị cho tài liệu approved hoặc hidden --}}
+                <div x-show="selectedDoc?.status==='approved' || selectedDoc?.status==='hidden'"
+                    class="flex items-center justify-between px-4 py-3 border border-slate-200 bg-slate-50 rounded-xl mb-5">
+                    <div class="flex items-center gap-2.5">
+                        <i :data-lucide="selectedDoc?.status==='hidden' ? 'eye-off' : 'eye'" class="w-4 h-4 text-slate-500"></i>
+                        <div>
+                            <p class="text-sm font-semibold text-slate-700"
+                                x-text="selectedDoc?.status==='hidden' ? 'Đang ẩn khỏi kho' : 'Đang hiển thị trong kho'"></p>
+                            <p class="text-[11px] text-slate-400">Học viên sẽ không thấy tài liệu này khi bị ẩn</p>
+                        </div>
+                    </div>
 
+                    <button type="button"
+                        @click="toggleVisibility(selectedDoc)"
+                        :disabled="selectedDoc && processingIds.includes(selectedDoc.id)"
+                        role="switch"
+                        :aria-checked="(selectedDoc?.status !== 'hidden').toString()"
+                        class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 ease-in-out
+                            disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-slate-300 focus:ring-offset-1"
+                        :class="selectedDoc?.status !== 'hidden' ? 'bg-emerald-500' : 'bg-slate-300'">
+                        <span class="inline-block transform rounded-full bg-white shadow transition-transform duration-200 ease-in-out"
+                            style="height:18px;width:18px"
+                            :class="selectedDoc?.status !== 'hidden' ? 'translate-x-6' : 'translate-x-1'">
+                        </span>
+                    </button>
+                </div>
                 {{-- FIX: approve từ modal không đóng modal trước — để approveDoc tự đóng sau khi xong --}}
                 <div x-show="selectedDoc?.status==='pending'" class="flex gap-3">
                     <button @click="approveFromModal()"
@@ -544,6 +627,14 @@
                         <i data-lucide="x" class="w-4 h-4"></i> Từ chối
                     </button>
                 </div>
+
+                {{-- NÚT MỚI: AI xét duyệt ngay trong modal preview --}}
+                <button x-show="selectedDoc?.status==='pending'" @click="aiReviewFromModal()"
+                    :disabled="selectedDoc && processingIds.includes(selectedDoc.id)"
+                    class="w-full mt-3 py-2.5 border border-violet-200 text-violet-600 bg-violet-50 rounded-xl text-sm font-semibold hover:bg-violet-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2">
+                    <i data-lucide="bot" class="w-4 h-4" :class="selectedDoc && processingIds.includes(selectedDoc.id) ? 'ai-pulse' : ''"></i>
+                    <span x-text="selectedDoc && processingIds.includes(selectedDoc.id) ? 'AI đang phân tích...' : 'Tự động xét duyệt bằng AI'"></span>
+                </button>
             </div>
         </div>
     </div>
@@ -599,11 +690,40 @@
         </div>
     </div>
 
+    {{-- MODAL: Xác nhận dùng chung (thay cho confirm() của trình duyệt) --}}
+    <div x-show="confirmModalOpen" x-transition class="fixed inset-0 z-[70] flex items-center justify-center p-4" style="display:none">
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" @click="resolveConfirm(false)"></div>
+        <div class="relative bg-white rounded-3xl shadow-2xl w-full max-w-sm p-7 space-y-5">
+            <div class="flex items-start gap-3">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                    :class="confirmModalDanger ? 'bg-rose-100' : 'bg-violet-100'">
+                    <i :data-lucide="confirmModalDanger ? 'alert-triangle' : 'help-circle'"
+                       class="w-5 h-5" :class="confirmModalDanger ? 'text-rose-500' : 'text-violet-500'"></i>
+                </div>
+                <div class="flex-1 pt-0.5">
+                    <h2 class="text-base font-black text-slate-900" x-text="confirmModalTitle"></h2>
+                    <p class="text-sm text-slate-500 mt-1" x-text="confirmModalMessage"></p>
+                </div>
+            </div>
+            <div class="flex gap-3">
+                <button @click="resolveConfirm(false)"
+                    class="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-all">
+                    Hủy
+                </button>
+                <button @click="resolveConfirm(true)"
+                    class="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white transition-all"
+                    :class="confirmModalDanger ? 'bg-rose-500 hover:bg-rose-600' : 'bg-slate-900 hover:bg-slate-700'"
+                    x-text="confirmModalConfirmText">
+                </button>
+            </div>
+        </div>
+    </div>
+
     {{-- Toast --}}
     <div x-show="toast.show" x-transition style="display:none"
-        class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-5 py-3 rounded-2xl shadow-xl text-sm font-semibold text-white flex items-center gap-2"
-        :class="{'bg-emerald-600':toast.type==='success','bg-rose-600':toast.type==='error','bg-amber-500':toast.type==='warning'}">
-        <i :data-lucide="toast.type==='success'?'check-circle':toast.type==='error'?'x-circle':'alert-triangle'" class="w-4 h-4"></i>
+        class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-5 py-3 rounded-2xl shadow-xl text-sm font-semibold text-white flex items-center gap-2 max-w-md text-center"
+        :class="{'bg-emerald-600':toast.type==='success','bg-rose-600':toast.type==='error','bg-amber-500':toast.type==='warning','bg-violet-600':toast.type==='ai'}">
+        <i :data-lucide="toast.type==='success'?'check-circle':toast.type==='error'?'x-circle':toast.type==='ai'?'bot':'alert-triangle'" class="w-4 h-4 shrink-0"></i>
         <span x-text="toast.msg"></span>
     </div>
 </div>
@@ -623,8 +743,21 @@ function docManager() {
         toast: { show: false, msg: '', type: 'success' },
         loading: { pending: true, all: true, stats: false },
 
+        // ── Modal xác nhận dùng chung (thay cho confirm() của trình duyệt) ──
+        confirmModalOpen: false,
+        confirmModalTitle: '',
+        confirmModalMessage: '',
+        confirmModalConfirmText: 'Xác nhận',
+        confirmModalDanger: false,
+        _confirmResolve: null,
+
         // ── FIX: dùng array reactive thay vì doc._loading ──────────────────
         processingIds: [],
+
+        // ── AI xét duyệt hàng loạt ───────────────────────────────────────────
+        bulkAiRunning: false,
+        bulkAiTotal: 0,
+        bulkAiDone: 0,
 
         pendingDocs: [], allDocs: [], kpis: [],
         typeStats: [], subjectStats: [], topDocs: [], approvalStats: [], subjects: [],
@@ -677,11 +810,57 @@ function docManager() {
             return data;
         },
 
+        async toggleVisibility(doc) {
+            if (!doc || this.processingIds.includes(doc.id)) return;
+            this.processingIds.push(doc.id);
+            try {
+                const res = await this.api(`/admin/documents/${doc.id}/toggle-visibility`, 'PATCH');
+                this._syncDoc(res.doc);
+                this.showToast(res.message ?? 'Đã cập nhật trạng thái hiển thị');
+            } catch (e) {
+                this.showToast(e.message, 'error');
+            } finally {
+                this.processingIds = this.processingIds.filter(id => id !== doc.id);
+                this.$nextTick(() => lucide.createIcons());
+            }
+        },
+
+        statusLabel(doc) {
+            return { approved: 'Đã duyệt', pending: 'Chờ duyệt', rejected: 'Từ chối', hidden: 'Đã ẩn' }[doc.status] ?? doc.status;
+        },
+        statusBadgeClass(doc) {
+            return {
+                approved: 'bg-emerald-50 text-emerald-600',
+                pending:  'bg-amber-50 text-amber-600',
+                rejected: 'bg-rose-50 text-rose-600',
+                hidden:   'bg-slate-100 text-slate-500',
+            }[doc.status] ?? 'bg-slate-100 text-slate-500';
+        },
+
+        // ── Modal xác nhận dùng chung — trả về Promise<boolean> ─────────────
+        askConfirm(title, message, opts = {}) {
+            this.confirmModalTitle       = title;
+            this.confirmModalMessage     = message;
+            this.confirmModalConfirmText = opts.confirmText || 'Xác nhận';
+            this.confirmModalDanger      = !!opts.danger;
+            this.confirmModalOpen        = true;
+            this.$nextTick(() => lucide.createIcons());
+            return new Promise((resolve) => { this._confirmResolve = resolve; });
+        },
+
+        resolveConfirm(result) {
+            this.confirmModalOpen = false;
+            if (this._confirmResolve) {
+                this._confirmResolve(result);
+                this._confirmResolve = null;
+            }
+        },
+
         async fetchPending() {
             this.loading.pending = true;
             try {
                 const res = await this.api('/admin/documents/pending');
-                this.pendingDocs   = res.data ?? [];
+                this.pendingDocs = (res.data ?? []).map(doc => ({ ...doc, aiReviewEnabled: false }));
                 this.tabs[0].count = this.pendingDocs.length;
             } catch (e) { this.showToast(e.message, 'error'); }
             finally {
@@ -694,7 +873,7 @@ function docManager() {
             this.loading.all = true;
             try {
                 const res = await this.api('/admin/documents/data');
-                this.allDocs  = res.data     ?? [];
+                this.allDocs = (res.data ?? []).map(doc => ({ ...doc, aiReviewEnabled: false }));
                 this.kpis     = res.kpis     ?? [];
                 this.subjects = res.subjects ?? [];
             } catch (e) { this.showToast(e.message, 'error'); }
@@ -783,8 +962,76 @@ function docManager() {
             }
         },
 
+        // ── MỚI: AI tự động xét duyệt 1 tài liệu ────────────────────────────
+        async aiReviewDoc(doc) {
+            if (!doc || this.processingIds.includes(doc.id)) return;
+            this.processingIds.push(doc.id);
+            try {
+                const res = await this.api(`/admin/documents/${doc.id}/ai-review`, 'PATCH');
+                this._syncDoc(res.doc);
+                this.pendingDocs   = this.pendingDocs.filter(d => d.id !== doc.id);
+                this.tabs[0].count = this.pendingDocs.length;
+
+                const verb = res.ai_decision === 'approve' ? 'Đã phê duyệt' : 'Đã từ chối';
+                const confidence = res.ai_confidence != null ? ` (độ tin cậy ${res.ai_confidence}%)` : '';
+                const reason = res.ai_reason ? ` — Lý do: ${res.ai_reason}` : '';
+                this.showToast(`${verb}${confidence}${reason}`, 'ai');
+
+                return true;
+            } catch (e) {
+                this.showToast(e.message, 'error');
+                return false;
+            } finally {
+                this.processingIds = this.processingIds.filter(id => id !== doc.id);
+                this.$nextTick(() => lucide.createIcons());
+            }
+        },
+
+        toggleAiReview(doc) {
+            if (!doc) return;
+            doc.aiReviewEnabled = !doc.aiReviewEnabled;
+            this.$nextTick(() => lucide.createIcons());
+        },
+
+        async aiReviewFromModal() {
+            if (!this.selectedDoc) return;
+            const doc = this.selectedDoc;
+            const ok = await this.aiReviewDoc(doc);
+            if (ok) this.previewOpen = false;
+        },
+
+        // ── MỚI: AI xét duyệt hàng loạt toàn bộ danh sách chờ duyệt ─────────
+        async aiReviewAllPending() {
+            if (this.bulkAiRunning || this.pendingDocs.length === 0) return;
+
+            const ok = await this.askConfirm(
+                'Tự động xét duyệt bằng AI',
+                `Để AI tự động xét duyệt ${this.pendingDocs.length} tài liệu đang chờ? Hành động sẽ được áp dụng ngay cho từng tài liệu, không cần xác nhận lại.`,
+                { confirmText: 'Bắt đầu' }
+            );
+            if (!ok) return;
+
+            this.bulkAiRunning = true;
+            const queue = [...this.pendingDocs];
+            this.bulkAiTotal = queue.length;
+            this.bulkAiDone  = 0;
+
+            for (const doc of queue) {
+                await this.aiReviewDoc(doc);
+                this.bulkAiDone++;
+            }
+
+            this.bulkAiRunning = false;
+            this.showToast(`🤖 AI đã xét duyệt xong ${this.bulkAiDone} tài liệu`, 'ai');
+        },
+
         async deleteDoc(doc) {
-            if (!confirm(`Xóa tài liệu "${doc.name}"?`)) return;
+            const ok = await this.askConfirm(
+                'Xóa tài liệu',
+                `Xóa tài liệu "${doc.name}"? Hành động này không thể hoàn tác.`,
+                { confirmText: 'Xóa', danger: true }
+            );
+            if (!ok) return;
             try {
                 const res = await this.api(`/admin/documents/${doc.id}`, 'DELETE');
                 this.allDocs     = this.allDocs.filter(d => d.id !== doc.id);
@@ -800,6 +1047,14 @@ function docManager() {
             this.selectedDoc = doc;
             this.previewOpen = true;
             this.$nextTick(() => lucide.createIcons());
+
+            // ✅ Ghi nhận lượt xem, không cần chờ kết quả, không chặn UI
+            this.api(`/admin/documents/${doc.id}/view`, 'POST')
+                .then(res => {
+                    doc.views = res.views;
+                    if (this.selectedDoc?.id === doc.id) this.selectedDoc.views = res.views;
+                })
+                .catch(() => {}); // im lặng bỏ qua nếu lỗi, không ảnh hưởng trải nghiệm xem
         },
 
         _syncDoc(updated) {
@@ -815,7 +1070,7 @@ function docManager() {
         showToast(msg, type = 'success') {
             this.toast = { show: true, msg, type };
             this.$nextTick(() => lucide.createIcons());
-            setTimeout(() => this.toast.show = false, 2500);
+            setTimeout(() => this.toast.show = false, 4000);
         },
     };
 }

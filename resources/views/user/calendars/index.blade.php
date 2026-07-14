@@ -400,7 +400,7 @@
                 </div>
 
                 {{-- Date --}}
-                <div>
+                <div x-show="eventForm.repeat === 'none'">
                     <label class="block text-xs font-bold text-slate-700 mb-1.5">Ngày</label>
                     <input type="date" x-model="eventForm.date"
                         class="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
@@ -442,8 +442,24 @@
                 </div>
             </div>
 
+                {{-- Khoảng ngày lặp lại (chỉ hiện khi repeat != none) --}}
+                <div x-show="eventForm.repeat !== 'none'" x-transition class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1.5">Lặp từ ngày</label>
+                        <input type="date" x-model="eventForm.date"
+                            class="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
+                        <p class="text-[10px] text-slate-400 mt-1"
+                            x-text="eventForm.repeat === 'weekly' ? 'Sẽ lặp lại vào cùng thứ trong tuần' : (eventForm.repeat === 'monthly' ? 'Sẽ lặp lại vào cùng ngày trong tháng' : 'Sẽ lặp lại mỗi ngày trong khoảng')">
+                        </p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1.5">Đến ngày <span class="text-red-500">*</span></label>
+                        <input type="date" x-model="eventForm.repeatEnd" :min="eventForm.date"
+                            class="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
+                    </div>
+                </div>
             <div class="flex gap-3 pt-1">
-                <button x-show="editingEvent" @click="deleteEvent()"
+                <button x-show="editingEvent" @click="openDeleteConfirm(editingEvent)"
                     class="px-4 py-2.5 rounded-xl text-sm font-semibold text-red-600 border border-red-200 hover:bg-red-50 transition-all">
                     <i data-lucide="trash-2" class="w-4 h-4 inline-block mr-1"></i>Xóa
                 </button>
@@ -509,7 +525,7 @@
                         class="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-all flex items-center justify-center gap-1.5">
                         <i data-lucide="edit-2" class="w-3.5 h-3.5"></i> Sửa
                     </button>
-                    <button @click="deleteEventById(detailEvent?.id); openDetail = false"
+                    <button @click="openDeleteConfirm(detailEvent)"
                         class="flex-1 py-2.5 border border-red-200 rounded-xl text-sm font-semibold text-red-600 hover:bg-red-50 transition-all flex items-center justify-center gap-1.5">
                         <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Xóa
                     </button>
@@ -518,6 +534,73 @@
         </div>
     </div>
 
+    {{-- ═══════════════════════
+     MODAL: DELETE CONFIRM
+    ═══════════════════════ --}}
+    <div x-show="deleteConfirm.show" x-transition
+        class="fixed inset-0 z-[70] flex items-center justify-center p-4"
+        style="display:none;">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="closeDeleteConfirm()"></div>
+        <div class="relative bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+
+            <div class="flex items-start gap-3">
+                <div class="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+                    <i data-lucide="trash-2" class="w-5 h-5 text-red-600"></i>
+                </div>
+                <div>
+                    <h3 class="text-base font-black text-slate-900">Xóa sự kiện</h3>
+                    <p class="text-sm text-slate-500 mt-0.5" x-text="deleteConfirm.target?.title"></p>
+                </div>
+            </div>
+
+            {{-- Trường hợp KHÔNG thuộc chuỗi lặp lại --}}
+            <template x-if="!deleteConfirm.target?.groupId">
+                <p class="text-sm text-slate-600">Bạn có chắc chắn muốn xóa sự kiện này không?</p>
+            </template>
+
+            {{-- Trường hợp thuộc chuỗi lặp lại: cho chọn phạm vi xóa --}}
+            <template x-if="deleteConfirm.target?.groupId">
+                <div class="space-y-2">
+                    <p class="text-sm text-slate-600">
+                        Sự kiện này thuộc chuỗi lặp lại
+                        (<span class="font-semibold" x-text="{'daily':'hằng ngày','weekly':'hằng tuần','monthly':'hằng tháng'}[deleteConfirm.target?.repeat] || ''"></span>).
+                        Bạn muốn xóa như thế nào?
+                    </p>
+
+                    <button @click="confirmDelete('this')"
+                        class="w-full flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 transition-all text-left">
+                        <i data-lucide="calendar-x" class="w-4 h-4 text-slate-500 shrink-0"></i>
+                        <div>
+                            <p class="text-sm font-bold text-slate-800">Chỉ xóa ngày này</p>
+                            <p class="text-xs text-slate-400" x-text="formatDateLabel(deleteConfirm.target?.date)"></p>
+                        </div>
+                    </button>
+
+                    <button @click="confirmDelete('series')"
+                        class="w-full flex items-center gap-3 p-3 rounded-xl border border-red-200 hover:bg-red-50 transition-all text-left">
+                        <i data-lucide="calendar-off" class="w-4 h-4 text-red-500 shrink-0"></i>
+                        <div>
+                            <p class="text-sm font-bold text-red-600">Xóa toàn bộ chuỗi lặp lại</p>
+                            <p class="text-xs text-slate-400">Xóa tất cả các ngày trong chuỗi này</p>
+                        </div>
+                    </button>
+                </div>
+            </template>
+
+            {{-- Nút hành động --}}
+            <div class="flex gap-3 pt-1">
+                <button @click="closeDeleteConfirm()"
+                    class="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-all">
+                    Hủy
+                </button>
+                {{-- Chỉ hiện nút xóa trực tiếp khi KHÔNG thuộc chuỗi lặp --}}
+                <button x-show="!deleteConfirm.target?.groupId" @click="confirmDelete('this')"
+                    class="flex-1 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-all">
+                    Xóa
+                </button>
+            </div>
+        </div>
+    </div>
     {{-- Toast --}}
     <div x-show="toast.show" 
      x-transition
@@ -560,8 +643,8 @@ function calendarApp() {
         detailEvent: null,
         editingEvent:null,
         toast:       { show:false, message:'',type: 'success' },
-        eventForm:   { title:'', type:'study', date:'', startTime:'08:00', endTime:'09:30', description:'', repeat:'none' },
-
+        eventForm: { title:'', type:'study', date:'', startTime:'08:00', endTime:'09:30', description:'', repeat:'none', repeatEnd:'' },
+        deleteConfirm: { show: false, target: null },
         eventTypes: @json($eventTypes).map(type => ({ ...type, visible: true })),
 
         events: @json($calendarEvents ?? []),
@@ -762,7 +845,7 @@ function calendarApp() {
                 title:'', type:'study',
                 date: this.dateStr(this.selectedDate),
                 startTime:'08:00', endTime:'09:30',
-                description:'', repeat:'none',
+                description:'', repeat:'none', repeatEnd:'',
             };
         },
         quickAddOnSlot(date, hour) {
@@ -772,62 +855,80 @@ function calendarApp() {
                 title:'', type:'study', date,
                 startTime: `${String(hour).padStart(2,'0')}:00`,
                 endTime:   `${String(hour+1).padStart(2,'0')}:30`,
-                description:'', repeat:'none',
+                description:'', repeat:'none', repeatEnd:'', // thêm repeatEnd
             };
             this.$nextTick(() => lucide.createIcons());
         },
         async saveEvent() {
-                if (!this.eventForm.title || !this.eventForm.date) return;
+            if (!this.eventForm.title || !this.eventForm.date) return;
+            if (this.eventForm.repeat !== 'none' && !this.eventForm.repeatEnd) {
+                this.showToast('Vui lòng chọn ngày kết thúc lặp lại', 'warning');
+                return;
+            }
 
-                const isEditing = !!this.editingEvent;
-                const url = isEditing
-                    ? `/user/calendars/${this.editingEvent.id}`
-                    : '{{ route("user.calendars.store") }}';
-                const method = isEditing ? 'PUT' : 'POST';
+            const isEditing = !!this.editingEvent;
+            const url = isEditing
+                ? `/user/calendars/${this.editingEvent.id}`
+                : '{{ route("user.calendars.store") }}';
+            const method = isEditing ? 'PUT' : 'POST';
 
-                try {
-                    const response = await fetch(url, {
-                        method: method,
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                        },
-                        body: JSON.stringify(this.eventForm)
-                    });
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                    },
+                    body: JSON.stringify(this.eventForm)
+                });
 
-                    const result = await response.json();
+                const result = await response.json();
 
-                    if (result.success) {
-                        if (isEditing) {
-                            // Dùng splice để Alpine detect được thay đổi
+                if (result.success) {
+                    if (isEditing) {
+                        if (result.scope === 'occurrence') {
+                            // Quy tắc lặp không đổi -> chỉ thay thế ĐÚNG bản ghi vừa sửa,
+                            // KHÔNG được đụng tới các occurrence khác đang có trong local state.
                             const idx = this.events.findIndex(e => e.id === this.editingEvent.id);
-                             if (idx !== -1) {
-                                // Dùng eventForm thay vì result.data để đảm bảo đúng field names
-                                const updatedEvent = { 
-                                    ...this.events[idx], 
-                                    ...this.eventForm,
-                                    id: this.editingEvent.id  // giữ nguyên id
-                                };
-                                this.events.splice(idx, 1, updatedEvent);
+                            if (idx !== -1) {
+                                this.events.splice(idx, 1, result.data[0]);
+                            } else {
+                                this.events.push(result.data[0]);
                             }
-                            this.showToast('Đã cập nhật sự kiện thành công!');
                         } else {
-                            this.events.push({ id: result.data.id, ...this.eventForm });
-                            this.showToast('Đã thêm sự kiện thành công!');
+                            // scope 'single' hoặc 'series': nhóm cũ đã bị xóa hẳn ở backend
+                            // -> xóa hết các event cùng oldGroupId khỏi local state rồi add lại kết quả mới
+                            const oldGroupId = result.oldGroupId || this.editingEvent.groupId;
+                            if (oldGroupId) {
+                                this.events = this.events.filter(e => e.groupId !== oldGroupId);
+                            } else {
+                                this.events = this.events.filter(e => e.id !== this.editingEvent.id);
+                            }
+                            result.data.forEach(ev => this.events.push(ev));
                         }
-
-                        this.openAddEvent = false;
-                        this.editingEvent = null;
-                        this.eventForm = { title: '', type: 'study', date: '', startTime: '08:00', endTime: '09:30', description: '', repeat: 'none' };
-                        this.rebuild();
                     } else {
-                        this.showToast('Lỗi: ' + result.message, 'error');
+                        // Tạo mới (POST): thêm toàn bộ các event trả về
+                        result.data.forEach(ev => this.events.push(ev));
                     }
-                } catch (error) {
-                    console.error('saveEvent error:', error);
-                    this.showToast('Có lỗi xảy ra khi kết nối server', 'error');
+
+                    this.showToast(
+                        result.data.length > 1
+                            ? `Đã ${isEditing ? 'cập nhật' : 'thêm'} ${result.data.length} sự kiện lặp lại!`
+                            : `Đã ${isEditing ? 'cập nhật' : 'thêm'} sự kiện thành công!`
+                    );
+
+                    this.openAddEvent = false;
+                    this.editingEvent = null;
+                    this.resetForm();
+                    this.rebuild();
+                } else {
+                    this.showToast('Lỗi: ' + result.message, 'error');
                 }
-            },
+            } catch (error) {
+                console.error('saveEvent error:', error);
+                this.showToast('Có lỗi xảy ra khi kết nối server', 'error');
+            }
+        },
         openEventDetail(ev) {
             console.log('openEventDetail: Mở chi tiết sự kiện với ID:', ev.id);
             this.detailEvent = ev;
@@ -836,31 +937,87 @@ function calendarApp() {
         },
         editEvent(ev) {
             this.openDetail   = false;
-            this.editingEvent = ev;
-            this.eventForm    = { ...ev };
+            this.editingEvent = ev; // ev đã có groupId, repeat, repeatEnd nhờ mapEventForFrontend
+            this.eventForm    = { ...ev, repeatEnd: ev.repeatEnd || '' };
             this.openAddEvent = true;
             this.$nextTick(() => lucide.createIcons());
         },
-        async deleteEvent() {
-            if (!this.editingEvent) {
-                console.warn('deleteEvent: Không tìm thấy editingEvent');
-                return;
-            }
+        // async deleteEvent() {
+        //     if (!this.editingEvent) {
+        //         console.warn('deleteEvent: Không tìm thấy editingEvent');
+        //         return;
+        //     }
 
-            if (!confirm('Bạn có chắc chắn muốn xóa sự kiện này không?')) return;
+        //     if (!confirm('Bạn có chắc chắn muốn xóa sự kiện này không?')) return;
 
-            // Log ID sự kiện sắp xóa
-            console.log('deleteEvent: Đang bắt đầu xóa sự kiện với ID:', this.editingEvent.id);
+        //     // Log ID sự kiện sắp xóa
+        //     console.log('deleteEvent: Đang bắt đầu xóa sự kiện với ID:', this.editingEvent.id);
 
             
-        },
-        async deleteEventById(id) {
-           
-            try {
-                 
-                const url = "{{ route('user.calendars.destroy', ':id') }}".replace(':id', id);
-                console.log('deleteEvent: Gọi API tới URL:', url);
+        // },
+        
+        // async deleteEventById(id) {
+        //     const target = this.events.find(e => e.id === id) || this.detailEvent;
+        //     let deleteSeries = false;
 
+        //     if (target?.groupId) {
+        //         deleteSeries = confirm('Sự kiện này thuộc chuỗi lặp lại. Nhấn OK để xóa TOÀN BỘ chuỗi, hoặc Cancel để chỉ xóa sự kiện này.');
+        //     } else if (!confirm('Bạn có chắc chắn muốn xóa sự kiện này không?')) {
+        //         return;
+        //     }
+
+        //     try {
+        //         const url = `/user/calendars/${id}${deleteSeries ? '?deleteSeries=1' : ''}`;
+        //         const response = await fetch(url, {
+        //             method: 'DELETE',
+        //             headers: {
+        //                 'X-CSRF-TOKEN': '{{ csrf_token() }}',
+        //                 'Accept': 'application/json'
+        //             }
+        //         });
+
+        //         const result = await response.json();
+
+        //         if (result.success) {
+        //             const idsToRemove = new Set(result.deletedIds || [id]);
+        //             this.events = this.events.filter(e => !idsToRemove.has(e.id));
+        //             this.showToast('Đã xóa sự kiện thành công!');
+        //             this.openAddEvent = false;
+        //             this.openDetail = false;
+        //             this.editingEvent = null;
+        //             this.rebuild();
+        //         } else {
+        //             this.showToast(result.message, 'error');
+        //         }
+        //     } catch (error) {
+        //         console.error('deleteEvent: Lỗi ngoại lệ:', error);
+        //         this.showToast('Lỗi kết nối server!', 'error');
+        //     }
+        // },
+        openDeleteConfirm(ev) {
+            const target = typeof ev === 'object' && ev !== null
+                ? ev
+                : (this.events.find(e => e.id === ev) || this.detailEvent || this.editingEvent);
+
+            if (!target) return;
+
+            this.deleteConfirm = { show: true, target };
+            this.$nextTick(() => lucide.createIcons());
+        },
+
+        closeDeleteConfirm() {
+            this.deleteConfirm = { show: false, target: null };
+        },
+
+        // Thực thi xóa. scope: 'this' (chỉ ngày được chọn) | 'series' (toàn bộ chuỗi lặp lại)
+        async confirmDelete(scope = 'this') {
+            const target = this.deleteConfirm.target;
+            if (!target) return;
+
+            const deleteSeries = scope === 'series' && !!target.groupId;
+
+            try {
+                const url = `/user/calendars/${target.id}${deleteSeries ? '?deleteSeries=1' : ''}`;
                 const response = await fetch(url, {
                     method: 'DELETE',
                     headers: {
@@ -869,30 +1026,32 @@ function calendarApp() {
                     }
                 });
 
-                // Log trạng thái phản hồi
-                console.log('deleteEvent: Phản hồi từ server status:', response.status);
-
                 const result = await response.json();
-                console.log('deleteEvent: Kết quả trả về:', result);
 
                 if (result.success) {
-                    console.log('deleteEvent: Xóa thành công, đang cập nhật UI...');
-                    this.events = this.events.filter(e => e.id !== id);
-                    this.showToast('Đã xóa sự kiện thành công!');
+                    const idsToRemove = new Set(result.deletedIds || [target.id]);
+                    this.events = this.events.filter(e => !idsToRemove.has(e.id));
+
+                    this.showToast(
+                        deleteSeries
+                            ? 'Đã xóa toàn bộ chuỗi sự kiện lặp lại!'
+                            : 'Đã xóa sự kiện thành công!'
+                    );
+
                     this.openAddEvent = false;
-                    this.openDetail = false;
+                    this.openDetail   = false;
                     this.editingEvent = null;
+                    this.closeDeleteConfirm();
                     this.rebuild();
                 } else {
-                    console.error('deleteEvent: Server từ chối xóa:', result.message);
                     this.showToast(result.message, 'error');
+                    this.closeDeleteConfirm();
                 }
             } catch (error) {
-                console.error('deleteEvent: Lỗi ngoại lệ (Exception):', error);
+                console.error('confirmDelete: Lỗi ngoại lệ:', error);
                 this.showToast('Lỗi kết nối server!', 'error');
+                this.closeDeleteConfirm();
             }
-            // this.rebuild();
-            // this.showToast('Đã xóa sự kiện');
         },
         showToast(msg, type = 'success') {
             this.toast = { show: true, message: msg, type: type };

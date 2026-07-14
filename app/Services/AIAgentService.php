@@ -12,8 +12,8 @@ class AIAgentService
 
     public function __construct()
     {
-        $this->apiUrl = 'http://localhost:11434/api/generate';
-        $this->model = 'llama3.1:8b';
+        $this->apiUrl = config('services.ollama.api_url');
+        $this->model = config('services.ollama.model');
     }
 
     /**
