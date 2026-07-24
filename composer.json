@@ -7,7 +7,10 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
+        "ext-dom": "*",
         "ext-gd": "*",
+        "ext-json": "*",
+        "ext-xml": "*",
         "ext-zip": "*",
         "kreait/firebase-php": "^7.24",
         "laravel/framework": "^12.0",
