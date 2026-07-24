@@ -155,6 +155,11 @@
                                 x-text="doc.type?.toUpperCase()"></span>
                             <span x-show="doc.size" class="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full"
                                 x-text="doc.size"></span>
+                            {{-- MỚI: badge kết quả scan bảo mật --}}
+                            <span x-show="doc.scan_status === 'flagged'"
+                                class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 flex items-center gap-1">
+                                <i data-lucide="alert-triangle" class="w-3 h-3"></i> Cần chú ý
+                            </span>
                         </div>
                     </div>
                     <p class="text-sm text-slate-600 mt-2 line-clamp-2" x-text="doc.description"></p>
@@ -311,6 +316,8 @@
                         <th class="px-4 py-3.5 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">Tải</th>
                         <th class="px-4 py-3.5 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">Rate</th>
                         <th class="px-4 py-3.5 text-center text-[10px] font-bold uppercase tracking-wider text-slate-400">Trạng thái</th>
+                        <th class="px-4 py-3.5 text-center text-[10px] font-bold uppercase tracking-wider text-slate-400">Scan</th>
+                        <th class="px-4 py-3.5 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">Ngày duyệt</th>
                         <th class="px-4 py-3.5 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">Ngày duyệt</th>
                         <th class="px-4 py-3.5 text-center text-[10px] font-bold uppercase tracking-wider text-slate-400">Thao tác</th>
                     </tr>
@@ -349,6 +356,14 @@
                                     :class="statusBadgeClass(doc)"
                                     x-text="statusLabel(doc)">
                                 </span>
+                            </td>
+                            <td class="px-4 py-3.5 text-center">
+                                <span x-show="doc.scan_status === 'flagged'"
+                                    class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700"
+                                    title="Hệ thống phát hiện điểm cần kiểm tra kỹ hơn">⚠ Flagged</span>
+                                <span x-show="doc.scan_status === 'passed'"
+                                    class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600">✓ OK</span>
+                                <span x-show="!doc.scan_status" class="text-[10px] text-slate-300">—</span>
                             </td>
                             <td class="px-4 py-3.5 text-right text-[10px] text-slate-400" x-text="doc.reviewed_at ?? '—'"></td>
                             <td class="px-4 py-3.5">
@@ -390,7 +405,7 @@
                         </tr>
                     </template>
                     <tr x-show="filteredAllDocs.length===0">
-                        <td colspan="8" class="py-14 text-center">
+                        <td colspan="9" class="py-14 text-center">
                             <i data-lucide="folder-open" class="w-10 h-10 text-slate-200 mx-auto mb-3"></i>
                             <p class="text-sm text-slate-400">Không tìm thấy tài liệu nào</p>
                         </td>
@@ -561,6 +576,69 @@
                         <p class="text-xs font-bold text-rose-600 mb-1">Lý do từ chối</p>
                         <p class="text-sm text-rose-700" x-text="selectedDoc?.rejection_reason"></p>
                     </div>
+                    {{-- MỚI: Chi tiết kết quả kiểm duyệt tự động (scan_result) --}}
+                        <div x-show="selectedDoc?.scan_status" class="mb-5">
+                            <div class="flex items-center justify-between mb-2">
+                                <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider">Kiểm duyệt tự động</h4>
+                                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                                    :class="selectedDoc?.scan_status === 'flagged' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-50 text-emerald-600'"
+                                    x-text="selectedDoc?.scan_status === 'flagged' ? '⚠ Cần chú ý' : '✓ Đã qua kiểm tra'">
+                                </span>
+                            </div>
+
+                            <div class="bg-slate-50 rounded-xl p-4 space-y-2.5 text-xs" x-show="selectedDoc?.scan_result">
+                                {{-- Chữ ký file --}}
+                                <div x-show="selectedDoc?.scan_result?.signature" class="flex items-start gap-2">
+                                    <i :data-lucide="selectedDoc?.scan_result?.signature?.valid ? 'check-circle' : 'x-circle'"
+                                        class="w-3.5 h-3.5 shrink-0 mt-0.5"
+                                        :class="selectedDoc?.scan_result?.signature?.valid ? 'text-emerald-500' : 'text-rose-500'"></i>
+                                    <div>
+                                        <p class="font-semibold text-slate-700">Chữ ký file (magic bytes)</p>
+                                        <p class="text-slate-500" x-text="'MIME phát hiện: ' + (selectedDoc?.scan_result?.signature?.detected_mime || '—')"></p>
+                                    </div>
+                                </div>
+
+                                {{-- Virus scan --}}
+                                <div x-show="selectedDoc?.scan_result?.virus" class="flex items-start gap-2">
+                                    <i :data-lucide="selectedDoc?.scan_result?.virus?.status === 'clean' ? 'shield-check' : selectedDoc?.scan_result?.virus?.status === 'skipped' ? 'shield-off' : 'shield-alert'"
+                                        class="w-3.5 h-3.5 shrink-0 mt-0.5"
+                                        :class="selectedDoc?.scan_result?.virus?.status === 'clean' ? 'text-emerald-500' : selectedDoc?.scan_result?.virus?.status === 'skipped' ? 'text-slate-400' : 'text-amber-500'"></i>
+                                    <div>
+                                        <p class="font-semibold text-slate-700">Quét virus (ClamAV)</p>
+                                        <p class="text-slate-500" x-text="{
+                                            'clean':'Không phát hiện mã độc',
+                                            'skipped':'Chưa cấu hình ClamAV, bỏ qua bước này',
+                                            'error':'Không thể kết nối ClamAV khi quét'
+                                        }[selectedDoc?.scan_result?.virus?.status] || selectedDoc?.scan_result?.virus?.status"></p>
+                                    </div>
+                                </div>
+
+                                {{-- Trích xuất nội dung --}}
+                                <div x-show="selectedDoc?.scan_result?.extraction" class="flex items-start gap-2">
+                                    <i :data-lucide="selectedDoc?.scan_result?.extraction?.supported ? 'file-text' : 'file-x'"
+                                        class="w-3.5 h-3.5 shrink-0 mt-0.5"
+                                        :class="selectedDoc?.scan_result?.extraction?.supported ? 'text-indigo-500' : 'text-slate-400'"></i>
+                                    <div>
+                                        <p class="font-semibold text-slate-700">Trích xuất nội dung</p>
+                                        <p class="text-slate-500"
+                                            x-text="selectedDoc?.scan_result?.extraction?.supported
+                                                ? ('Đã đọc được ' + selectedDoc?.scan_result?.extraction?.length + ' ký tự')
+                                                : 'Định dạng này chưa hỗ trợ trích xuất tự động'"></p>
+                                    </div>
+                                </div>
+
+                                {{-- Kiểm tra nội dung --}}
+                                <div x-show="selectedDoc?.scan_result?.content" class="flex items-start gap-2">
+                                    <i :data-lucide="selectedDoc?.scan_result?.content?.suspicious ? 'alert-triangle' : 'check-circle'"
+                                        class="w-3.5 h-3.5 shrink-0 mt-0.5"
+                                        :class="selectedDoc?.scan_result?.content?.suspicious ? 'text-amber-500' : 'text-emerald-500'"></i>
+                                    <div>
+                                        <p class="font-semibold text-slate-700">Kiểm tra nội dung</p>
+                                        <p class="text-slate-500" x-text="selectedDoc?.scan_result?.content?.reason || 'Không có gì bất thường'"></p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                 </div>
 
                 <div class="grid grid-cols-4 gap-3 mb-5">

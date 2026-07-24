@@ -93,9 +93,14 @@ class Knowledge extends Model
      */
     public function getChildTopicsCount(): int
     {
-        return count($this->data['cac_chu_de_con'] ?? []);
+        $sections = $this->data['cac_chu_de_lon'] ?? [];
+        return collect($sections)->sum(fn ($s) => count($s['cac_chu_de_con'] ?? []));
     }
 
+    public function getSectionsCount(): int
+    {
+        return count($this->data['cac_chu_de_lon'] ?? []);
+    }
     /**
      * Publish the knowledge
      */

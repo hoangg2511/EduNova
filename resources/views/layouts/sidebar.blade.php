@@ -72,7 +72,7 @@
                 <a href="{{ route('user.flashcards') }}"
                    class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all group font-semibold {{ $currentRoute === 'user.flashcards' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-600 hover:bg-slate-50 hover:text-indigo-600' }}">
                     <i data-lucide="graduation-cap" class="w-5 h-5 flex-shrink-0 {{ $currentRoute === 'user.flashcards' ? 'text-indigo-600' : 'text-slate-500 group-hover:text-indigo-600' }}"></i>
-                    <span x-show="sidebarOpen" class="whitespace-nowrap">Kho flashcard</span>
+                    <span x-show="sidebarOpen" class="whitespace-nowrap">Thẻ ghi nhớ</span>
                 </a>
 
                 <!-- 6. DROPDOWN: Cộng đồng (MỚI) -->

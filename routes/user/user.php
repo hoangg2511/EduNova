@@ -22,7 +22,8 @@ Route::middleware(['auth', 'is_user'])->prefix('user')->name('user.')->group(fun
     Route::get('/knowledge/roadmap', [KnowledgeController::class, 'roadmap'])->name('knowledge.roadmap');
     Route::post('/knowledge', [KnowledgeController::class, 'store'])->name('knowledge.store');
     Route::get('/knowledge/{id}', [KnowledgeController::class, 'show'])->name('knowledge.show');
-    
+    Route::put('/knowledge/{id}', [KnowledgeController::class, 'update'])->name('knowledge.update');
+    Route::delete('/knowledge/{id}', [KnowledgeController::class, 'destroy'])->name('knowledge.destroy');
     
     
     // Document routes

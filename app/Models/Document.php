@@ -1,42 +1,34 @@
 <?php
 namespace App\Models;
 
+use App\Jobs\GenerateDocumentEmbeddings;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
-
+use App\Jobs\GenerateRelatedDocuments;
+use Illuminate\Support\Facades\DB;
 class Document extends Model
 {
     protected $fillable = [
-        'name', 'description', 'url', 'downloads','views', 
-        'rate', 'medium_rate', 'size','author','status', 'uploaded_by','reviewed_at','rejection_reason'
+        'name', 'description', 'url', 'downloads', 'views',
+        'rate', 'medium_rate', 'size', 'author', 'status', 'uploaded_by', 'reviewed_at', 'rejection_reason',
+        'scan_status', 'scan_result', 'extracted_text',
     ];
 
-    /**
-     * The users that are related to this document.
-     */
+    protected $casts = [
+        'scan_result'     => 'array',
+        'extracted_text'  => 'string',
+    ];
+
+    // ─── Relations ──────────────────────────────────────────────────────────
+
     public function users(): BelongsToMany
     {
-        return $this->belongsToMany(User::class, 'recent_activities')
-            ->withTimestamps();
+        return $this->belongsToMany(User::class, 'recent_activities')->withTimestamps();
     }
 
-    
-    public function hide(): void
-    {
-        $this->update(['status' => 'hidden']);
-    }
-
-    public function unhide(): void
-    {
-        $this->update(['status' => 'approved']);
-    }
-
-    /**
-     * The users that have saved this document.
-     */
     public function savedByUsers(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'my_documents')
@@ -44,59 +36,38 @@ class Document extends Model
             ->withTimestamps();
     }
 
-    /**
-     * The upload record for this document.
-     */
     public function upload(): HasOne
     {
         return $this->hasOne(Upload::class);
     }
 
-    /**
-     * The user who uploaded this document.
-     */
     public function uploader(): BelongsTo
     {
         return $this->belongsTo(User::class, 'uploaded_by');
     }
 
-    /**
-     * The types that are related to this document.
-     */
     public function types(): BelongsToMany
     {
-        return $this->belongsToMany(Type::class, 'document_type')
-            ->withTimestamps();
+        return $this->belongsToMany(Type::class, 'document_type')->withTimestamps();
     }
 
-    /**
-     * The tags that are related to this document.
-     */
     public function tags(): BelongsToMany
     {
-        return $this->belongsToMany(Tag::class, 'document_tag')
-            ->withTimestamps();
+        return $this->belongsToMany(Tag::class, 'document_tag')->withTimestamps();
     }
 
-    // /**
-    //  * The reviews for this document.
-    //  */
+    public function embeddings(): HasMany
+    {
+        return $this->hasMany(DocumentEmbedding::class);
+    }
+
     public function reviews(): HasMany
-{
-    return $this->hasMany(\App\Models\DocumentReview::class);
-}
-    //  public function uploader(): BelongsTo
-    // {
-    //     return $this->belongsTo(User::class, 'user_id');
-    // }
- 
-    // public function reviewer(): BelongsTo
-    // {
-    //     return $this->belongsTo(User::class, 'reviewed_by');
-    // }
- 
-    // ─── Scopes ───────────────────────────────────────────────────────────────
- 
+    {
+        return $this->hasMany(DocumentReview::class);
+    }
+
+    // ─── Scopes ─────────────────────────────────────────────────────────────
+
     public function scopeSearch($query, ?string $q)
     {
         return $q
@@ -106,7 +77,7 @@ class Document extends Model
               )
             : $query;
     }
- 
+
     public function scopeOfType($query, ?string $type)
     {
         return $type ? $query->whereHas('types', fn ($q) => $q->where('name', $type)) : $query;
@@ -116,12 +87,24 @@ class Document extends Model
     {
         return $subject ? $query->whereHas('tags', fn ($q) => $q->where('name', $subject)) : $query;
     }
- 
+
     public function scopeOfStatus($query, ?string $status)
     {
         return $status ? $query->where('status', $status) : $query;
     }
- 
+
+    public function scopeApproved($query)
+    {
+        return $query->where('status', 'approved');
+    }
+
+    public function scopePending($query)
+    {
+        return $query->where('status', 'pending');
+    }
+
+    // ─── Accessors ──────────────────────────────────────────────────────────
+
     public function getTypeAttribute(): ?string
     {
         return $this->types->first()?->name;
@@ -131,61 +114,78 @@ class Document extends Model
     {
         return $this->tags->first()?->name;
     }
- 
-    public function scopeApproved($query)
-    {
-        return $query->where('status', 'approved');
-    }
- 
-    public function scopePending($query)
-    {
-        return $query->where('status', 'pending');
-    }
- 
-    // ─── Accessors ────────────────────────────────────────────────────────────
- 
+
     /** dd/mm/yyyy */
     public function getUploadDateAttribute(): string
     {
         return $this->created_at->format('d/m/Y');
     }
- 
+
     /** Author name from relationship */
     public function getAuthorAttribute(): string
     {
         return $this->uploader?->name ?? 'Ẩn danh';
     }
- 
+
     /** Icon name for Lucide */
     public function getIconAttribute(): string
     {
         return match ($this->type) {
-            'pdf'  => 'file-text',
-            'docx' => 'file',
-            'pptx' => 'presentation',
-            'xlsx' => 'table-2',
+            'pdf'   => 'file-text',
+            'docx'  => 'file',
+            'pptx'  => 'presentation',
+            'xlsx'  => 'table-2',
             default => 'file',
         };
     }
- 
+
     /** Hex color per type */
     public function getColorAttribute(): string
     {
         return match ($this->type) {
-            'pdf'  => '#ef4444',
-            'docx' => '#3b82f6',
-            'pptx' => '#f59e0b',
-            'xlsx' => '#10b981',
+            'pdf'   => '#ef4444',
+            'docx'  => '#3b82f6',
+            'pptx'  => '#f59e0b',
+            'xlsx'  => '#10b981',
             default => '#64748b',
         };
     }
- 
-    // ─── Helpers ──────────────────────────────────────────────────────────────
- 
-    public function isPending(): bool   { return $this->status === 'pending';  }
-    public function isApproved(): bool  { return $this->status === 'approved'; }
-    public function isRejected(): bool  { return $this->status === 'rejected'; }
-    public function isHidden(): bool    { return $this->status === 'hidden'; }
+
+    // ─── State helpers ──────────────────────────────────────────────────────
+
+    public function isPending(): bool  { return $this->status === 'pending'; }
+    public function isApproved(): bool { return $this->status === 'approved'; }
+    public function isRejected(): bool { return $this->status === 'rejected'; }
+    public function isHidden(): bool   { return $this->status === 'hidden'; }
+
+    // ─── Helper dùng chung để dọn dữ liệu RAG ──────────────────────────────
+
+    private function purgeEmbeddings(): void
+    {
+        $this->embeddings()->delete();
+
+        RelatedDocument::where('document_id', $this->id)
+            ->orWhere('related_document_id', $this->id)
+            ->delete();
+    }
+
+    // ─── State transitions (chỉ 1 bản duy nhất cho mỗi method) ─────────────
+
+    public function hide(): void
+    {
+        $this->update(['status' => 'hidden']);
+
+        // Tài liệu bị ẩn không nên còn xuất hiện trong gợi ý cho user khác
+        $this->purgeEmbeddings();
+    }
+
+    public function unhide(): void
+    {
+        $this->update(['status' => 'approved']);
+
+        // Cần sinh lại embedding + related vì cả 2 đã bị xoá lúc hide()
+        $this->dispatchEmbeddingPipeline();
+    }
 
     public function approve(int $reviewerId): void
     {
@@ -194,8 +194,24 @@ class Document extends Model
             'reviewed_by' => $reviewerId,
             'reviewed_at' => now(),
         ]);
+
+        $this->dispatchEmbeddingPipeline();
     }
- 
+
+/**
+ * Chain: sinh embedding xong mới tính related documents (cần embedding có sẵn).
+ * Dùng chung cho mọi trường hợp document chuyển sang 'approved' (approve() lẫn unhide()).
+ */
+private function dispatchEmbeddingPipeline(): void
+{
+    DB::afterCommit(function () {
+        \Illuminate\Support\Facades\Bus::chain([
+            new GenerateDocumentEmbeddings($this->id),
+            new GenerateRelatedDocuments($this->id),
+        ])->dispatch();
+    });
+}
+
     public function reject(int $reviewerId, ?string $reason = null): void
     {
         $this->update([
@@ -204,13 +220,15 @@ class Document extends Model
             'reviewed_at'      => now(),
             'rejection_reason' => $reason,
         ]);
+
+        // Xử lý trường hợp tài liệu từng approved (có embedding) rồi bị admin đổi ý sang reject
+        $this->purgeEmbeddings();
     }
 
-     public function recalcRating(): void
+    public function recalcRating(): void
     {
-        $avg   = $this->reviews()->avg('rating') ?? 0;
-        $count = $this->reviews()->count();
- 
+        $avg = $this->reviews()->avg('rating') ?? 0;
+
         $this->update([
             'rate'        => round($avg, 1),
             'medium_rate' => round($avg, 1),

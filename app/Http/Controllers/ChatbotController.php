@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Services\AIAgentService;
 use Illuminate\Http\JsonResponse;
+
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use App\Models\Message;
@@ -15,9 +16,11 @@ use App\Models\Deck;
 use App\Models\Card;
 use App\Models\Notification;
 use App\Models\UserLog;
+use App\Services\DocumentRecommendationService;
 class ChatbotController extends Controller
 {
-    public function __construct(private AIAgentService $aiService) {}
+    public function __construct(private AIAgentService $aiService,
+        private DocumentRecommendationService $recommendationService,) {}
 
     private const CLARIFY_PREFIX = 'HOI_LAI:';
     // ─────────────────────────────────────────────────────────────────────────
@@ -160,7 +163,7 @@ QUY TẮC ĐẦU RA
  
 1. CHỈ trả về JSON thuần túy. KHÔNG markdown, KHÔNG ```json, KHÔNG lời chào/giải thích ngoài JSON.
 2. JSON phải parse được ngay bằng json_decode().
-3. Tạo tối thiểu 5 câu, tối đa 20 câu.
+3. Tạo tối thiểu 5 câu
 4. duration: số phút (mặc định 30). passMark: 0-100 (mặc định 60). points: mặc định 1.
  
 ═══════════════════════════════════════════════
@@ -543,7 +546,7 @@ PROMPT
             $request->validate([
                 'message' => 'required|string|max:4000',
                 'history' => 'nullable|array',
-                'tag'     => 'nullable|string|in:create_exam,create_schedule,create_flashcard',
+                'tag'     => 'nullable|string|in:create_exam,create_schedule,create_flashcard,recommend_document',
             ]);
 
             $userId  = auth()->id();
@@ -566,6 +569,10 @@ PROMPT
             $history      = $this->getHistoryFromDb($userId, 20);
             $context      = $this->buildContext($history);
             $today        = now()->format('Y-m-d');
+
+            if ($tag === 'recommend_document') {
+                return $this->handleDocumentRecommendationStream($userId, $message);
+            }
 
             $systemPrompt = match ($tag) {
                 'create_exam'      => $this->promptCreateExam($context),
@@ -641,6 +648,20 @@ PROMPT
         }
     }
 
+
+    // private function handleDocumentRecommendation(string $message): array
+    // {
+    //     $docs = app(DocumentRecommendationService::class)->searchByQuery($message, 5);
+
+    //     if ($docs->isEmpty()) {
+    //         return ['reply' => 'Mình chưa tìm thấy tài liệu phù hợp trong kho, bạn thử mô tả cụ thể hơn nhé.'];
+    //     }
+
+    //     $list = $docs->map(fn ($d) => "- {$d->name}" . ($d->description ? ": " . mb_substr($d->description, 0, 80) : ''))
+    //         ->implode("\n");
+
+    //     return ['reply' => "Mình tìm thấy vài tài liệu có thể phù hợp:\n{$list}", 'documents' => $docs];
+    // }
     // ─────────────────────────────────────────────────────────────────────────
     // TAG HANDLER CHÍNH
     // ─────────────────────────────────────────────────────────────────────────
@@ -1206,5 +1227,68 @@ PROMPT
                 'ai_reply' => $this->estimateTokens($aiReply),
             ],
         ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+// DOCUMENT RECOMMENDATION (RAG)
+// ─────────────────────────────────────────────────────────────────────────
+
+private function handleDocumentRecommendationStream(int $userId, string $message)
+{
+    Log::info('handleDocumentRecommendationStream: searching', ['user_id' => $userId, 'query' => mb_substr($message, 0, 200)]);
+
+    try {
+        $docs = $this->recommendationService->searchByQuery($message, 5);
+    } catch (\Exception $e) {
+        Log::error('handleDocumentRecommendationStream: search failed', ['error' => $e->getMessage()]);
+        $docs = collect();
+    }
+
+    $reply = $this->formatDocumentRecommendationReply($docs);
+
+    // Lưu vào lịch sử chat
+    try {
+        Message::create(['user_id' => $userId, 'role' => 'ai', 'content' => $reply]);
+    } catch (\Exception $e) {
+        Log::warning('Cannot persist recommendation reply: ' . $e->getMessage());
+    }
+
+    return response()->stream(function () use ($reply) {
+        $chunks = str_split($reply, 4);
+        foreach ($chunks as $chunk) {
+            echo $chunk;
+            @ob_flush(); @flush();
+            usleep(8000);
+        }
+    }, 200, [
+        'Content-Type'      => 'text/plain; charset=utf-8',
+        'Cache-Control'     => 'no-cache, no-store, must-revalidate',
+        'X-Accel-Buffering' => 'no',
+        'X-Chat-Tag-Status' => 'done', // tìm 1 lần là xong, không cần hỏi lại
+    ]);
+}
+
+    private function formatDocumentRecommendationReply($docs): string
+    {
+        if ($docs->isEmpty()) {
+            return "🔍 Mình chưa tìm thấy tài liệu nào phù hợp trong kho. Bạn thử mô tả cụ thể hơn (tên môn học, chủ đề...) nhé.";
+        }
+
+        $lines = ["📚 **Mình tìm thấy vài tài liệu có thể phù hợp:**\n"];
+
+        foreach ($docs as $doc) {
+            try {
+                $url = route('user.documents.view', $doc->id);
+            } catch (\Exception $e) {
+                $url = '/user/documents/' . $doc->id . '/view';
+            }
+
+            $desc = $doc->description ? ' — ' . mb_substr($doc->description, 0, 100) : '';
+            $lines[] = "• [{$doc->name}]({$url}){$desc}";
+        }
+
+        $lines[] = "\n💡 Nhấn vào tên tài liệu để xem chi tiết.";
+
+        return implode("\n", $lines);
     }
 }

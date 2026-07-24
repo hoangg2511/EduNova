@@ -1,26 +1,36 @@
 @extends('layouts.app')
 
 @section('content')
-<div class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 sm:p-6 lg:p-8">
+<div x-data="knowledgeShow()" x-init="init()" class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 sm:p-6 lg:p-8">
     <div class="max-w-6xl mx-auto">
 
         {{-- Header --}}
         <div class="mb-8">
-            <nav class="flex items-center gap-2 mb-4">
-                <a href="{{ route('user.knowledge') }}" class="text-blue-600 hover:text-blue-700">Khóa học</a>
+            <nav class="flex items-center gap-2 mb-4 text-sm">
+                <a href="{{ route('user.knowledge') }}" class="text-blue-600 hover:text-blue-700 font-medium">Lộ trình học</a>
                 <span class="text-gray-400">/</span>
-                <span class="text-gray-600">{{ $knowledge->title }}</span>
+                <span class="text-gray-600" x-text="treeData.ten_chuyen_de || '{{ $knowledge->title }}'"></span>
             </nav>
 
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
-                    <h1 class="text-4xl font-bold text-gray-900">{{ $knowledge->title }}</h1>
-                    @php $data = $knowledge->data; @endphp
-                    <p class="text-gray-600 mt-2">
-                        {{ $data['mo_ta'] ?? ($knowledge->description ?? 'Chưa có mô tả') }}
-                    </p>
+                <div class="flex-1">
+                    <template x-if="!isEditMode">
+                        <div>
+                            <h1 class="text-4xl font-bold text-gray-900" x-text="treeData.ten_chuyen_de"></h1>
+                            <p class="text-gray-600 mt-2" x-text="treeData.mo_ta || 'Chưa có mô tả'"></p>
+                        </div>
+                    </template>
+                    <template x-if="isEditMode">
+                        <div class="space-y-2">
+                            <input type="text" x-model="treeData.ten_chuyen_de"
+                                class="text-2xl font-bold text-gray-900 w-full border-b-2 border-blue-400 focus:outline-none focus:border-blue-600 bg-transparent pb-1">
+                            <textarea x-model="treeData.mo_ta" rows="2"
+                                class="w-full text-gray-600 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"></textarea>
+                        </div>
+                    </template>
                 </div>
-                <div class="flex gap-2">
+
+                <div class="flex items-center gap-2 shrink-0">
                     <span class="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium capitalize">
                         {{ $knowledge->format }}
                     </span>
@@ -39,217 +49,153 @@
             </div>
         </div>
 
+        {{-- Toolbar --}}
+        <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+            <h2 class="text-2xl font-bold text-gray-900">Lộ trình học tập</h2>
+            <div class="flex gap-2 flex-wrap items-center">
+                <button x-show="!isEditMode" @click="toggleEditMode()"
+                    class="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50 transition">
+                    <i data-lucide="pencil" class="w-4 h-4"></i> Chỉnh sửa
+                </button>
+                <p x-show="isEditMode" class="text-xs text-slate-500 flex items-center gap-1.5 px-1">
+                    <i data-lucide="move" class="w-3.5 h-3.5"></i> Kéo thả để sắp xếp lại thứ tự
+                </p>
+                <button x-show="isEditMode" @click="addSection()"
+                    class="flex items-center gap-2 px-4 py-2 border border-blue-300 text-blue-600 rounded-lg font-medium hover:bg-blue-50 transition">
+                    <i data-lucide="plus" class="w-4 h-4"></i> Thêm chủ đề lớn
+                </button>
+                <button x-show="isEditMode" @click="saveEdits()" :disabled="saving"
+                    class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 transition">
+                    <i :data-lucide="saving ? 'loader' : 'check'" :class="saving ? 'animate-spin' : ''" class="w-4 h-4"></i>
+                    <span x-text="saving ? 'Đang lưu...' : 'Lưu thay đổi'"></span>
+                </button>
+                <button x-show="isEditMode" @click="cancelEdit()"
+                    class="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg font-medium text-gray-600 hover:bg-gray-50 transition">
+                    Hủy
+                </button>
+            </div>
+        </div>
+
         {{-- Knowledge Tree --}}
         <div class="bg-white rounded-2xl shadow-lg p-8">
-            <h2 class="text-2xl font-bold text-gray-900 mb-6">Lộ trình học tập</h2>
-
-            @if($knowledge->data && is_array($knowledge->data))
-                <div id="treeContainer" class="space-y-6"></div>
-
-                <script>
-                    const treeData = @json($knowledge->data);
-
-                    const COLORS = [
-                        { header: '#2563EB', light: '#EFF6FF', border: '#BFDBFE' }, // blue
-                        { header: '#059669', light: '#ECFDF5', border: '#A7F3D0' }, // emerald
-                        { header: '#7C3AED', light: '#F5F3FF', border: '#DDD6FE' }, // violet
-                        { header: '#EA580C', light: '#FFF7ED', border: '#FED7AA' }, // orange
-                        { header: '#DC2626', light: '#FEF2F2', border: '#FECACA' }, // red
-                    ];
-
-                    function escapeHtml(text) {
-                        if (!text) return '';
-                        return String(text).replace(/[&<>"']/g, m =>
-                            ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }[m])
-                        );
-                    }
-
-                    function renderTree(tree) {
-                        const container = document.getElementById('treeContainer');
-                        if (!tree || !tree.ten_chuyen_de) {
-                            container.innerHTML = '<p class="text-center text-gray-500 py-12">Không có dữ liệu lộ trình</p>';
-                            return;
-                        }
-
-                        const chuDeLon = tree.cac_chu_de_lon || [];
-
-                        // === NODE 1: Root (Toàn bộ) ===
-                        const rootWrapper = document.createElement('div');
-                        rootWrapper.style.cssText = 'text-align:center;margin-bottom:24px;';
-                        
-                        const rootNode = document.createElement('div');
-                        rootNode.draggable = true;
-                        rootNode.style.cssText = 'display:inline-block;background:#FCD34D;border:3px solid #F59E0B;border-radius:16px;padding:20px 32px;cursor:grab;transition:all 0.2s;box-shadow:0 4px 12px rgba(0,0,0,0.1);';
-                        rootNode.innerHTML = `
-                            <div style="font-weight:900;font-size:1.2rem;color:#1e293b;margin-bottom:6px">${escapeHtml(tree.ten_chuyen_de)}</div>
-                            ${tree.mo_ta ? `<div style="font-size:0.9rem;color:#64748b;max-width:400px">${escapeHtml(tree.mo_ta)}</div>` : ''}
-                        `;
-
-                        rootNode.addEventListener('dragstart', (e) => {
-                            rootNode.style.opacity = '0.7';
-                            rootNode.style.transform = 'scale(0.95)';
-                            const sections = chuDeLon.map(l => ({
-                                title: l.ten,
-                                description: l.mo_ta || '',
-                                items: (l.cac_chu_de_con || []).map(it => ({
-                                    title: it.ten,
-                                    content: it.noi_dung || '',
-                                    formula: it.cong_thuc || '',
-                                    example: it.vi_du || ''
-                                }))
-                            }));
-                            e.dataTransfer.effectAllowed = 'copy';
-                            e.dataTransfer.setData('application/json', JSON.stringify({
-                                level: 1,
-                                title: tree.ten_chuyen_de,
-                                description: tree.mo_ta || '',
-                                sections: sections
-                            }));
-                        });
-
-                        rootNode.addEventListener('dragend', () => {
-                            rootNode.style.opacity = '1';
-                            rootNode.style.transform = 'scale(1)';
-                        });
-
-                        rootNode.addEventListener('mouseenter', () => {
-                            rootNode.style.boxShadow = '0 8px 20px rgba(0,0,0,0.15)';
-                        });
-
-                        rootNode.addEventListener('mouseleave', () => {
-                            rootNode.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-                        });
-
-                        rootWrapper.appendChild(rootNode);
-                        container.appendChild(rootWrapper);
-
-                        // === NODE 2 & 3: Sections with Items ===
-                        chuDeLon.forEach((lon, idx) => {
-                            const c = COLORS[idx % COLORS.length];
-                            
-                            // NODE 2 Container (Section)
-                            const section = document.createElement('div');
-                            section.draggable = true;
-                            section.style.cssText = `border:3px solid ${c.border};background:${c.light};border-radius:14px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);cursor:grab;transition:all 0.15s;margin-bottom:20px;`;
-
-                            // Section Header
-                            const header = document.createElement('div');
-                            header.style.cssText = `background:${c.header};padding:16px 24px;`;
-                            header.innerHTML = `
-                                <h4 style="color:#fff;font-weight:900;font-size:1.1rem;margin:0;display:flex;align-items:center;gap:8px">
-                                    <span style="opacity:0.8">📌</span>
-                                    ${escapeHtml(lon.ten)}
-                                </h4>
-                                ${lon.mo_ta ? `<p style="color:rgba(255,255,255,0.85);font-size:0.85rem;margin:6px 0 0 24px">${escapeHtml(lon.mo_ta)}</p>` : ''}
-                            `;
-                            section.appendChild(header);
-
-                            // NODE 3 Items Grid
-                            const con = lon.cac_chu_de_con || [];
-                            if (con.length > 0) {
-                                const grid = document.createElement('div');
-                                grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;padding:16px;';
-
-                                con.forEach(item => {
-                                    const card = document.createElement('div');
-                                    card.draggable = true;
-                                    card.style.cssText = `background:#fff;border-radius:10px;border:2px solid ${c.border};padding:14px;box-shadow:0 1px 3px rgba(0,0,0,0.05);cursor:grab;transition:all 0.2s;`;
-
-                                    card.addEventListener('dragstart', (e) => {
-                                        e.stopPropagation();
-                                        card.style.opacity = '0.6';
-                                        card.style.transform = 'scale(0.92)';
-                                        e.dataTransfer.effectAllowed = 'copy';
-                                        e.dataTransfer.setData('application/json', JSON.stringify({
-                                            level: 3,
-                                            title: item.ten,
-                                            content: item.noi_dung || '',
-                                            formula: item.cong_thuc || '',
-                                            example: item.vi_du || '',
-                                            section: lon.ten,
-                                            subsection: null
-                                        }));
-                                    });
-
-                                    card.addEventListener('dragend', (e) => {
-                                        card.style.opacity = '1';
-                                        card.style.transform = 'scale(1)';
-                                    });
-
-                                    card.addEventListener('mouseenter', () => {
-                                        card.style.borderColor = c.header;
-                                        card.style.boxShadow = `0 4px 12px ${c.header}22`;
-                                    });
-
-                                    card.addEventListener('mouseleave', () => {
-                                        card.style.borderColor = c.border;
-                                        card.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
-                                    });
-
-                                    card.innerHTML = `
-                                        <div style="font-weight:700;color:#0f172a;font-size:0.95rem;margin-bottom:8px">${escapeHtml(item.ten)}</div>
-                                        ${item.noi_dung ? `<p style="font-size:0.85rem;color:#475569;line-height:1.4;margin:0 0 8px">${escapeHtml(item.noi_dung)}</p>` : ''}
-                                        ${item.cong_thuc ? `<div style="background:#1e293b;border-radius:8px;padding:8px;margin-bottom:8px;"><code style="font-size:0.75rem;color:#fde047;font-family:monospace">${escapeHtml(item.cong_thuc)}</code></div>` : ''}
-                                        ${item.vi_du ? `<div style="background:#f0f4f8;border-left:3px solid ${c.header};border-radius:4px;padding:8px;font-size:0.8rem;color:#475569"><strong>VD:</strong> ${escapeHtml(item.vi_du.slice(0,100))}</div>` : ''}
-                                    `;
-
-                                    grid.appendChild(card);
-                                });
-
-                                section.appendChild(grid);
-                            }
-
-                            // NODE 2 Drag Handler (entire section)
-                            section.addEventListener('dragstart', (e) => {
-                                if (e.target === section || e.target === header) {
-                                    section.style.opacity = '0.8';
-                                    section.style.transform = 'scale(0.98)';
-                                    const items = con.map(it => ({
-                                        title: it.ten,
-                                        content: it.noi_dung || '',
-                                        formula: it.cong_thuc || '',
-                                        example: it.vi_du || ''
-                                    }));
-                                    e.dataTransfer.effectAllowed = 'copy';
-                                    e.dataTransfer.setData('application/json', JSON.stringify({
-                                        level: 2,
-                                        title: lon.ten,
-                                        description: lon.mo_ta || '',
-                                        items: items
-                                    }));
-                                }
-                            });
-
-                            section.addEventListener('dragend', (e) => {
-                                section.style.opacity = '1';
-                                section.style.transform = 'scale(1)';
-                            });
-
-                            section.addEventListener('mouseenter', () => {
-                                section.style.boxShadow = '0 6px 16px rgba(0,0,0,0.08)';
-                            });
-
-                            section.addEventListener('mouseleave', () => {
-                                section.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)';
-                            });
-
-                            container.appendChild(section);
-                        });
-                    }
-
-                    document.addEventListener('DOMContentLoaded', () => renderTree(treeData));
-                </script>
-            @else
+            <template x-if="!treeData.cac_chu_de_lon || treeData.cac_chu_de_lon.length === 0">
                 <div class="text-center py-12">
                     <p class="text-gray-500 text-lg">Chưa có dữ liệu lộ trình</p>
                 </div>
-            @endif
+            </template>
+
+            <div class="space-y-5" x-show="treeData.cac_chu_de_lon && treeData.cac_chu_de_lon.length > 0">
+                <template x-for="(lon, sIdx) in (treeData.cac_chu_de_lon || [])" :key="sIdx">
+                    <div
+                        :draggable="true"
+                        @dragstart="sectionDragStart($event, sIdx)"
+                        @dragover.prevent="sectionDragOver($event, sIdx)"
+                        @drop.prevent="sectionDrop($event, sIdx)"
+                        @dragend="sectionDragEnd()"
+                        class="rounded-2xl overflow-hidden shadow-md transition-all border-[3px] cursor-grab"
+                        :style="`border-color:${color(sIdx).border};background:${color(sIdx).light}`"
+                        :class="{
+                            'opacity-40': draggingSection === sIdx,
+                            'ring-2 ring-blue-400 ring-offset-2': dragOverSection === sIdx && draggingSection !== null && draggingSection !== sIdx
+                        }">
+
+                        {{-- Section header --}}
+                        <div class="px-6 py-4" :style="`background:${color(sIdx).header}`">
+                            <template x-if="!isEditMode">
+                                <div>
+                                    <h4 class="text-white font-black text-lg flex items-center gap-2">
+                                        <i data-lucide="grip-vertical" class="w-4 h-4 opacity-60"></i>
+                                        <span x-text="lon.ten"></span>
+                                    </h4>
+                                    <p x-show="lon.mo_ta" class="text-white/80 text-xs mt-1 ml-6" x-text="lon.mo_ta"></p>
+                                </div>
+                            </template>
+                            <template x-if="isEditMode">
+                                <div class="flex gap-2 items-start">
+                                    <i data-lucide="grip-vertical" class="w-4 h-4 text-white/60 mt-2 shrink-0"></i>
+                                    <div class="flex-1 space-y-1.5">
+                                        <input type="text" x-model="lon.ten"
+                                            class="w-full bg-white/15 border border-white/40 rounded-lg px-2.5 py-1.5 text-white font-black text-[1.05rem]">
+                                        <textarea x-model="lon.mo_ta" rows="1" placeholder="Mô tả chủ đề..."
+                                            class="w-full bg-white/10 border border-white/30 rounded-md px-2.5 py-1.5 text-white text-sm resize-y"></textarea>
+                                    </div>
+                                    <button @click.stop="removeSection(sIdx)" title="Xoá chủ đề lớn"
+                                        class="bg-white/20 hover:bg-white/30 rounded-lg p-2 text-white shrink-0 transition">
+                                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                    </button>
+                                </div>
+                            </template>
+                        </div>
+
+                        {{-- Items grid --}}
+                        <div class="grid gap-3.5 p-4" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">
+                            <template x-for="(item, iIdx) in (lon.cac_chu_de_con || [])" :key="iIdx">
+                                <div
+                                    :draggable="true"
+                                    @dragstart.stop="itemDragStart($event, sIdx, iIdx, lon, item)"
+                                    @dragover.prevent.stop="itemDragOver($event, sIdx, iIdx)"
+                                    @drop.prevent.stop="itemDrop($event, sIdx, iIdx)"
+                                    @dragend.stop="itemDragEnd()"
+                                    class="bg-white rounded-[10px] p-3.5 shadow-sm transition-all border-2 cursor-grab"
+                                    :style="`border-color:${color(sIdx).border}`"
+                                    :class="{
+                                        'opacity-40': draggingItem && draggingItem.s === sIdx && draggingItem.i === iIdx,
+                                        'ring-2 ring-blue-400 ring-offset-1': dragOverItem && dragOverItem.s === sIdx && dragOverItem.i === iIdx
+                                    }">
+
+                                    <template x-if="!isEditMode">
+                                        <div>
+                                            <div class="font-bold text-slate-900 text-sm mb-2 flex items-center gap-1.5">
+                                                <i data-lucide="grip-vertical" class="w-3 h-3 text-slate-300"></i>
+                                                <span x-text="item.ten"></span>
+                                            </div>
+                                            <p x-show="item.noi_dung" class="text-xs text-slate-600 leading-relaxed mb-2" x-text="item.noi_dung"></p>
+                                            <div x-show="item.cong_thuc" class="bg-slate-900 rounded-lg p-2 mb-2">
+                                                <code class="text-xs text-yellow-300 font-mono" x-text="item.cong_thuc"></code>
+                                            </div>
+                                            <div x-show="item.vi_du" class="bg-slate-50 border-l-[3px] rounded p-2 text-xs text-slate-600"
+                                                :style="`border-color:${color(sIdx).header}`">
+                                                <strong>VD:</strong> <span x-text="(item.vi_du || '').slice(0,100)"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+
+                                    <template x-if="isEditMode">
+                                        <div>
+                                            <div class="flex justify-between gap-1.5 mb-2">
+                                                <input type="text" x-model="item.ten"
+                                                    class="flex-1 font-bold text-sm border border-slate-200 rounded-md px-2 py-1">
+                                                <button @click.stop="removeItem(sIdx, iIdx)" title="Xoá mục"
+                                                    class="bg-rose-100 hover:bg-rose-200 rounded-md px-2 py-1 text-rose-600 transition">
+                                                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                                                </button>
+                                            </div>
+                                            <textarea x-model="item.noi_dung" rows="2" placeholder="Nội dung..."
+                                                class="w-full text-[0.82rem] border border-slate-200 rounded-md px-2 py-1.5 mb-1.5 resize-y"></textarea>
+                                            <input type="text" x-model="item.cong_thuc" placeholder="Công thức (nếu có)"
+                                                class="w-full font-mono text-[0.78rem] border border-slate-200 rounded-md px-2 py-1.5 mb-1.5">
+                                            <textarea x-model="item.vi_du" rows="2" placeholder="Ví dụ..."
+                                                class="w-full text-[0.8rem] border border-slate-200 rounded-md px-2 py-1.5 resize-y"></textarea>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+
+                        <button x-show="isEditMode" @click.stop="addItem(sIdx)"
+                            class="mx-4 mb-4 px-3.5 py-2 border-2 border-dashed rounded-lg text-sm font-semibold transition hover:bg-white/50"
+                            :style="`border-color:${color(sIdx).border};color:${color(sIdx).header}`">
+                            <i data-lucide="plus" class="w-3.5 h-3.5 inline-block -mt-0.5"></i> Thêm mục con
+                        </button>
+                    </div>
+                </template>
+            </div>
         </div>
 
         {{-- Actions --}}
         <div class="mt-8 flex gap-4 justify-center sm:justify-start">
             @if($knowledge->status === 'draft')
-                <button onclick="publishRoadmap()"
+                <button @click="publishRoadmap()"
                     class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition">
                     Xuất bản
                 </button>
@@ -261,13 +207,277 @@
         </div>
 
     </div>
+
+    {{-- Confirm modal (thay cho confirm() của trình duyệt) --}}
+    <div x-show="confirmModal.open" x-transition class="fixed inset-0 z-[80] flex items-center justify-center p-4" style="display:none">
+        <div class="absolute inset-0 bg-black/50" @click="resolveConfirm(false)"></div>
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <div class="flex items-start gap-3">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                    :class="confirmModal.danger ? 'bg-rose-100' : 'bg-blue-100'">
+                    <i :data-lucide="confirmModal.danger ? 'alert-triangle' : 'help-circle'"
+                       class="w-5 h-5" :class="confirmModal.danger ? 'text-rose-500' : 'text-blue-500'"></i>
+                </div>
+                <div class="flex-1 pt-0.5">
+                    <h3 class="font-bold text-gray-900" x-text="confirmModal.title"></h3>
+                    <p class="text-sm text-gray-500 mt-1" x-text="confirmModal.message"></p>
+                </div>
+            </div>
+            <div class="flex gap-2.5">
+                <button @click="resolveConfirm(false)"
+                    class="flex-1 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition">
+                    Hủy
+                </button>
+                <button @click="resolveConfirm(true)"
+                    class="flex-1 py-2 rounded-lg text-sm font-medium text-white transition"
+                    :class="confirmModal.danger ? 'bg-rose-500 hover:bg-rose-600' : 'bg-blue-600 hover:bg-blue-700'"
+                    x-text="confirmModal.confirmText">
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {{-- Toast --}}
+    <div x-show="toast.show" x-transition
+        class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[70] px-5 py-3 rounded-2xl shadow-xl text-sm font-semibold text-white flex items-center gap-2"
+        :class="toast.type==='error' ? 'bg-red-500' : 'bg-emerald-600'"
+        style="display:none;">
+        <i :data-lucide="toast.type==='error' ? 'alert-circle' : 'check-circle'" class="w-4 h-4"></i>
+        <span x-text="toast.message"></span>
+    </div>
 </div>
 
 <script>
-    function publishRoadmap() {
-        if (confirm('Bạn có chắc chắn muốn xuất bản lộ trình này?')) {
-            showToast('Tính năng này sẽ được triển khai sớm', 'info');
-        }
-    }
+function knowledgeShow() {
+    return {
+        knowledgeId: {{ $knowledge->id }},
+        originalData: @json($knowledge->data),
+        treeData: {},
+        isEditMode: false,
+        saving: false,
+
+        toast: { show: false, message: '', type: 'success' },
+        confirmModal: { open: false, title: '', message: '', confirmText: 'Xác nhận', danger: false },
+        _confirmResolve: null,
+
+        draggingSection: null,
+        dragOverSection: null,
+        draggingItem: null, // {s, i}
+        dragOverItem: null, // {s, i}
+
+        COLORS: [
+            { header: '#2563EB', light: '#EFF6FF', border: '#BFDBFE' },
+            { header: '#059669', light: '#ECFDF5', border: '#A7F3D0' },
+            { header: '#7C3AED', light: '#F5F3FF', border: '#DDD6FE' },
+            { header: '#EA580C', light: '#FFF7ED', border: '#FED7AA' },
+            { header: '#DC2626', light: '#FEF2F2', border: '#FECACA' },
+        ],
+
+        init() {
+            this.treeData = JSON.parse(JSON.stringify(this.originalData || {}));
+            this.$nextTick(() => lucide.createIcons());
+            this.$watch('isEditMode', () => this.$nextTick(() => lucide.createIcons()));
+            this.$watch('treeData', () => this.$nextTick(() => lucide.createIcons()), { deep: true });
+        },
+
+        color(idx) {
+            return this.COLORS[idx % this.COLORS.length];
+        },
+
+        showToast(message, type = 'success') {
+            this.toast = { show: true, message, type };
+            setTimeout(() => { this.toast.show = false; }, 3500);
+        },
+
+        askConfirm(title, message, opts = {}) {
+            this.confirmModal = {
+                open: true,
+                title,
+                message,
+                confirmText: opts.confirmText || 'Xác nhận',
+                danger: !!opts.danger,
+            };
+            return new Promise(resolve => { this._confirmResolve = resolve; });
+        },
+
+        resolveConfirm(result) {
+            this.confirmModal.open = false;
+            if (this._confirmResolve) {
+                this._confirmResolve(result);
+                this._confirmResolve = null;
+            }
+        },
+
+        // ── Edit mode ──────────────────────────────────────────────────────
+        toggleEditMode() {
+            this.isEditMode = true;
+        },
+
+        async cancelEdit() {
+            const ok = await this.askConfirm('Hủy thay đổi', 'Các chỉnh sửa chưa lưu sẽ bị mất. Bạn có chắc chắn?', { confirmText: 'Hủy thay đổi', danger: true });
+            if (!ok) return;
+            this.treeData = JSON.parse(JSON.stringify(this.originalData));
+            this.isEditMode = false;
+        },
+
+        // ── Mutations ──────────────────────────────────────────────────────
+        addSection() {
+            if (!this.treeData.cac_chu_de_lon) this.treeData.cac_chu_de_lon = [];
+            this.treeData.cac_chu_de_lon.push({ ten: 'Chủ đề mới', mo_ta: '', cac_chu_de_con: [] });
+        },
+
+        async removeSection(idx) {
+            const ok = await this.askConfirm('Xoá chủ đề lớn', 'Xoá chủ đề này và toàn bộ mục con bên trong?', { confirmText: 'Xoá', danger: true });
+            if (!ok) return;
+            this.treeData.cac_chu_de_lon.splice(idx, 1);
+        },
+
+        addItem(sIdx) {
+            if (!this.treeData.cac_chu_de_lon[sIdx].cac_chu_de_con) {
+                this.treeData.cac_chu_de_lon[sIdx].cac_chu_de_con = [];
+            }
+            this.treeData.cac_chu_de_lon[sIdx].cac_chu_de_con.push({ ten: 'Mục mới', noi_dung: '', cong_thuc: '', vi_du: '' });
+        },
+
+        removeItem(sIdx, iIdx) {
+            this.treeData.cac_chu_de_lon[sIdx].cac_chu_de_con.splice(iIdx, 1);
+        },
+
+        // ── Reorder: chủ đề lớn ──────────────────────────────────────────────
+        sectionDragStart(e, idx) {
+            if (!this.isEditMode) {
+                // Chế độ xem: kéo cả chủ đề lớn thả vào chatbot như trước
+                const lon = this.treeData.cac_chu_de_lon[idx];
+                const items = (lon.cac_chu_de_con || []).map(it => ({
+                    title: it.ten, content: it.noi_dung || '', formula: it.cong_thuc || '', example: it.vi_du || '',
+                }));
+                e.dataTransfer.effectAllowed = 'copy';
+                e.dataTransfer.setData('application/json', JSON.stringify({
+                    level: 2, title: lon.ten, description: lon.mo_ta || '', items,
+                }));
+                return;
+            }
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', String(idx));
+            this.draggingSection = idx;
+        },
+
+        sectionDragOver(e, idx) {
+            if (!this.isEditMode || this.draggingSection === null) return;
+            this.dragOverSection = idx;
+        },
+
+        sectionDrop(e, idx) {
+            if (!this.isEditMode || this.draggingSection === null) return;
+            const from = this.draggingSection;
+            const to = idx;
+            if (from === to) { this.sectionDragEnd(); return; }
+
+            const arr = this.treeData.cac_chu_de_lon;
+            const [moved] = arr.splice(from, 1);
+            arr.splice(to, 0, moved);
+            this.sectionDragEnd();
+        },
+
+        sectionDragEnd() {
+            this.draggingSection = null;
+            this.dragOverSection = null;
+        },
+
+        // ── Reorder: chủ đề con (chỉ trong cùng 1 chủ đề lớn) ─────────────────
+        itemDragStart(e, sIdx, iIdx, lon, item) {
+            if (!this.isEditMode) {
+                e.dataTransfer.effectAllowed = 'copy';
+                e.dataTransfer.setData('application/json', JSON.stringify({
+                    level: 3, title: item.ten, content: item.noi_dung || '',
+                    formula: item.cong_thuc || '', example: item.vi_du || '',
+                    section: lon.ten, subsection: null,
+                }));
+                return;
+            }
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', `${sIdx}:${iIdx}`);
+            this.draggingItem = { s: sIdx, i: iIdx };
+        },
+
+        itemDragOver(e, sIdx, iIdx) {
+            if (!this.isEditMode || !this.draggingItem) return;
+            if (this.draggingItem.s !== sIdx) return;
+            this.dragOverItem = { s: sIdx, i: iIdx };
+        },
+
+        itemDrop(e, sIdx, iIdx) {
+            if (!this.isEditMode || !this.draggingItem) return;
+            if (this.draggingItem.s !== sIdx) {
+                this.showToast('Chỉ có thể sắp xếp mục con trong cùng một chủ đề lớn.', 'error');
+                this.itemDragEnd();
+                return;
+            }
+            const from = this.draggingItem.i;
+            const to = iIdx;
+            if (from === to) { this.itemDragEnd(); return; }
+
+            const arr = this.treeData.cac_chu_de_lon[sIdx].cac_chu_de_con;
+            const [moved] = arr.splice(from, 1);
+            arr.splice(to, 0, moved);
+            this.itemDragEnd();
+        },
+
+        itemDragEnd() {
+            this.draggingItem = null;
+            this.dragOverItem = null;
+        },
+
+        // ── Save ───────────────────────────────────────────────────────────
+        async saveEdits() {
+            if (!this.treeData.cac_chu_de_lon || this.treeData.cac_chu_de_lon.length === 0) {
+                this.showToast('Cần có ít nhất 1 chủ đề lớn.', 'error');
+                return;
+            }
+            if (!this.treeData.ten_chuyen_de || !this.treeData.ten_chuyen_de.trim()) {
+                this.showToast('Tên lộ trình không được để trống.', 'error');
+                return;
+            }
+
+            this.saving = true;
+            try {
+                const response = await fetch(`/user/knowledge/${this.knowledgeId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify({
+                        title: this.treeData.ten_chuyen_de,
+                        knowledge_tree: this.treeData,
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (!response.ok || !data.success) {
+                    throw new Error(data.message || 'Lỗi khi lưu thay đổi.');
+                }
+
+                this.originalData = JSON.parse(JSON.stringify(this.treeData));
+                this.isEditMode = false;
+                this.showToast(data.message || 'Đã lưu thay đổi!', 'success');
+
+            } catch (error) {
+                console.error(error);
+                this.showToast('Lỗi: ' + (error.message || error), 'error');
+            } finally {
+                this.saving = false;
+            }
+        },
+
+        async publishRoadmap() {
+            const ok = await this.askConfirm('Xuất bản lộ trình', 'Bạn có chắc chắn muốn xuất bản lộ trình này?');
+            if (!ok) return;
+            this.showToast('Tính năng này sẽ được triển khai sớm', 'success');
+        },
+    };
+}
 </script>
 @endsection

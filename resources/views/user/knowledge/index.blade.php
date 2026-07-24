@@ -48,7 +48,7 @@
 
                 <div class="flex items-center justify-between pt-4 border-t border-slate-100">
                     <span class="text-xs text-slate-500">
-                        {{ $item->getChildTopicsCount() }} chủ đề con
+                        {{ $item->getSectionsCount() }} chủ đề lớn · {{ $item->getChildTopicsCount() }} chủ đề con
                     </span>
                     <a href="{{ route('user.knowledge.show', $item->id) }}" class="text-primary-600 hover:text-primary-700">
                         <i data-lucide="arrow-right" class="w-4 h-4"></i>

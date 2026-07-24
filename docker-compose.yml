@@ -1,0 +1,14 @@
+services:
+  clamav-rest:
+    image: ajilaag/clamav-rest:latest
+    container_name: edunova-clamav
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      - MAX_FILE_SIZE=26214400
+    volumes:
+      - clamav_data:/clamav/data
+
+volumes:
+  clamav_data:

@@ -205,7 +205,11 @@
                     x-model="input"
                     @keydown.enter="if ($event.shiftKey) return; $event.preventDefault(); send();"
                     :disabled="loading"
-                    :placeholder="selectedTag ? `Mô tả để ${selectedTag.label.toLowerCase()}...` : 'Nhập câu hỏi... (Enter để gửi)'"
+                    :placeholder="selectedTag  
+                        ? (selectedTag.key === 'recommend_document' 
+                            ? 'Mô tả chủ đề tài liệu bạn cần (VD: đạo hàm, ngữ pháp tiếng Anh...)' 
+                            : `Mô tả để ${selectedTag.label.toLowerCase()}...`)
+                        : 'Nhập câu hỏi... (Enter để gửi)'"
                     rows="1"
                     class="flex-1 px-4 py-3 border border-slate-200 rounded-xl text-sm text-slate-800
                         focus:outline-none focus:ring-2 focus:ring-slate-900 resize-none
@@ -250,9 +254,10 @@
             hints: ['Tạo lộ trình học Python', 'Giải thích Flexbox CSS', 'Mẹo học TOEIC'],
             selectedTag: null,
             availableTags: [
-                { key: 'create_exam',     label: 'Tạo bài thi',       icon: 'file-text' },
-                { key: 'create_schedule', label: 'Tạo lịch cá nhân',  icon: 'calendar'  },
-                { key: 'create_flashcard',label: 'Tạo flash card',     icon: 'layers'    },
+                { key: 'create_exam',       label: 'Tạo bài thi',        icon: 'file-text' },
+                { key: 'create_schedule',   label: 'Tạo lịch cá nhân',   icon: 'calendar'  },
+                { key: 'create_flashcard',  label: 'Tạo flash card',     icon: 'layers'    },
+                { key: 'recommend_document',label: 'Gợi ý tài liệu',     icon: 'search'    }, // MỚI
             ],
 
             init() {

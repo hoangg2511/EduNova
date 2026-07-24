@@ -11,13 +11,16 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use App\Models\UserLog;
 use App\Models\DocumentReview;
+use App\Services\DocumentSecurityService;
 class DocumentController extends Controller
 {
     protected $supabaseService;
+    protected $securityService;
 
-    public function __construct(SupabaseService $supabaseService)
+    public function __construct(SupabaseService $supabaseService, DocumentSecurityService $securityService)
     {
         $this->supabaseService = $supabaseService;
+        $this->securityService = $securityService;
     }
 
  
@@ -44,20 +47,20 @@ class DocumentController extends Controller
         ->paginate(12);
 
         // Gắn Signed URL cho cả 3 danh sách
-        foreach ([$documents, $savedDocuments, $myDocuments] as $collection) {
-            $collection->getCollection()->transform(function ($doc) {
-                $signed = '';
-                try {
-                    if (!empty($doc->url)) {
-                        $signed = $this->supabaseService->getSignedUrl('documents', $doc->url, 86400);
-                    }
-                } catch (\Exception $e) {
-                    Log::warning('Failed to generate signed url', ['id' => $doc->id]);
-                }
-                $doc->setAttribute('view_url', $signed);
-                return $doc;
-            });
-        }
+        // foreach ([$documents, $savedDocuments, $myDocuments] as $collection) {
+        //     $collection->getCollection()->transform(function ($doc) {
+        //         $signed = '';
+        //         try {
+        //             if (!empty($doc->url)) {
+        //                 $signed = $this->supabaseService->getSignedUrl('documents', $doc->url, 86400); // ← HTTP call ra ngoài, đồng bộ, mỗi document 1 lần
+        //             }
+        //         } catch (\Exception $e) {
+        //             Log::warning('Failed to generate signed url', ['id' => $doc->id]);
+        //         }
+        //         $doc->setAttribute('view_url', $signed);
+        //         return $doc;
+        //     });
+        // }
 
         return view('user.documents.index', compact('documents', 'savedDocuments', 'myDocuments'));
     }
@@ -163,6 +166,7 @@ class DocumentController extends Controller
             return back()->with('error', 'Đã xảy ra lỗi hệ thống.');
         }
     }
+
     private function decreaseDownloadLimit(int $userId): bool
     {
         // Việc kiểm tra download_limit > 0 ở đây giúp chặn việc trừ vào con số âm
@@ -178,7 +182,6 @@ class DocumentController extends Controller
      */
     public function upload(Request $request): JsonResponse
     {
-        // Log thông tin người dùng đang thực hiện hành động
         Log::info('User started document upload', ['user_id' => auth()->id() ?? 'guest']);
 
         try {
@@ -191,39 +194,33 @@ class DocumentController extends Controller
             ]);
 
             $file = $request->file('file');
-            $tags = [];
-            if ($request->has('category')) {
-                $tags = explode('/', trim($request->category, '/'));
+
+            // ── KIỂM DUYỆT TRƯỚC KHI LƯU ─────────────────────────────
+            $scan = $this->securityService->scan($file);
+
+            if ($scan['status'] === 'failed') {
+                Log::warning('Document rejected by security scan', [
+                    'user_id' => auth()->id(),
+                    'checks'  => $scan['checks'],
+                ]);
+                return response()->json([
+                    'error' => 'File không vượt qua kiểm duyệt tự động (định dạng không khớp hoặc nghi ngờ chứa mã độc). Vui lòng kiểm tra lại file.',
+                    'details' => $scan['checks'],
+                ], 422);
             }
+            // 'flagged' vẫn cho lên hàng chờ nhưng gắn cờ để admin chú ý kỹ hơn
+            // ─────────────────────────────────────────────────────────
 
-            // 2. Tạo đường dẫn lưu trữ có cấu trúc (Folder/UUID_Time.ext)
-            $categoryDir = $request->category ? trim($request->category, '/') . '/' : 'others/';
-            $fileName = Str::uuid() . '_' . time() . '.' . $file->getClientOriginalExtension();
-            $filePath = $categoryDir . $fileName; // Supabase sẽ tự tạo folder nếu dùng đường dẫn này
-            // Log thông tin file trước khi upload
-            Log::info('Checking upload path', [
-                'full_path' => $filePath,
-            ]);
-            Log::debug('File details for upload', [
-                'original_name' => $file->getClientOriginalName(),
-                'mime_type' => $file->getClientMimeType(),
-                'size' => $file->getSize()
-            ]);
-
-            $fileName = Str::uuid() . '_' . time() . '.' . $file->getClientOriginalExtension();
+            $fileName = \Str::uuid() . '_' . time() . '.' . $file->getClientOriginalExtension();
             $filePath = $fileName;
             $fileSizeFormatted = $this->formatBytes($file->getSize());
-            
+
             $fileContent = file_get_contents($file->getRealPath());
             $uploadResponse = $this->supabaseService->uploadDocument(
-                'documents',
-                $filePath,
-                $fileContent,
-                $file->getClientMimeType()
+                'documents', $filePath, $fileContent, $file->getClientMimeType()
             );
-            
+
             if (!$uploadResponse->successful()) {
-                // Log lỗi từ phía Supabase trả về
                 Log::error('Supabase upload API failure', [
                     'status' => $uploadResponse->status(),
                     'response' => $uploadResponse->body()
@@ -231,22 +228,22 @@ class DocumentController extends Controller
                 return response()->json(['error' => 'Lỗi khi upload file lên Cloud'], 500);
             }
 
-            $documentUrl = $this->supabaseService->getSignedUrl('documents', $filePath, 86400 * 365);
-
             $document = Document::create([
-                'name'        => $validated['name'],
-                'description' => $validated['description'] ?? '',
-                'url'         => $filePath,
-                'downloads'   => 0,
-                'rate'        => 0,
-                'medium_rate' => 0,
-                'size'        => $fileSizeFormatted,
-                'author'      => $validated['author'],
-                'status'      => "pending",            // chờ duyệt
-                'uploaded_by' => auth()->id(), // ← thêm
+                'name'            => $validated['name'],
+                'description'     => $validated['description'] ?? '',
+                'url'             => $filePath,
+                'downloads'       => 0,
+                'rate'            => 0,
+                'medium_rate'     => 0,
+                'size'            => $fileSizeFormatted,
+                'author'          => auth()->user()->name,
+                'status'          => 'pending',
+                'uploaded_by'     => auth()->id(),
+                'scan_status'     => $scan['status'],       // passed | flagged
+                'scan_result'     => $scan['checks'],
+                'extracted_text'  => $scan['extracted_text'],
             ]);
 
-            // Prepare signed URL for front-end viewing/downloading
             $viewUrl = '';
             try {
                 $viewUrl = $this->supabaseService->getSignedUrl('documents', $filePath, 86400 * 365);
@@ -255,31 +252,25 @@ class DocumentController extends Controller
                 Log::warning('Failed to generate signed url after upload', ['document_id' => $document->id, 'error' => $e->getMessage()]);
             }
 
-            // Log thành công kèm ID tài liệu
-            Log::info('Document uploaded and recorded successfully', [
+            Log::info('Document uploaded, scanned and recorded successfully', [
                 'document_id' => $document->id,
-                'storage_path' => $filePath
+                'scan_status' => $scan['status'],
             ]);
 
             return response()->json([
-                'success' => true,
+                'success'  => true,
                 'document' => $document,
                 'view_url' => $viewUrl,
+                'scan_status' => $scan['status'],
             ], 201);
 
         } catch (\Illuminate\Validation\ValidationException $e) {
-            // Log lỗi validation
             Log::warning('Document upload validation failed', ['errors' => $e->errors()]);
             return response()->json(['error' => 'Validation error', 'messages' => $e->errors()], 422);
-
         } catch (\Exception $e) {
-            // Log lỗi nghiêm trọng (Exception)
             Log::critical('Document upload system error', [
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine()
+                'error' => $e->getMessage(), 'file' => $e->getFile(), 'line' => $e->getLine()
             ]);
-
             return response()->json(['error' => 'Có lỗi hệ thống xảy ra'], 500);
         }
     }

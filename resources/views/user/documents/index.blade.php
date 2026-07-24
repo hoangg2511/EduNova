@@ -161,11 +161,22 @@
                         <h3 class="font-bold text-slate-900 text-sm leading-tight line-clamp-2" x-text="doc.title"></h3>
                         <p class="text-xs text-slate-500" x-text="doc.author"></p>
 
-                        <div x-show="activeTab === 'my'" class="mt-2">
+                        <div x-show="activeTab === 'my'" class="mt-2 space-y-1.5">
                             <span class="text-xs font-semibold px-2 py-1 rounded-full"
                                 :class="getStatusClass(doc.status)"
                                 x-text="statusText(doc.status)">
                             </span>
+
+                            {{-- MỚI: lý do từ chối --}}
+                            <p x-show="doc.status === 'rejected' && doc.rejection_reason"
+                                class="text-[11px] text-rose-500 italic line-clamp-2"
+                                x-text="'Lý do: ' + doc.rejection_reason"></p>
+
+                            {{-- MỚI: cảnh báo tài liệu đang được kiểm tra kỹ hơn --}}
+                            <p x-show="doc.status === 'pending' && doc.scan_status === 'flagged'"
+                                class="text-[11px] text-amber-600 flex items-center gap-1">
+                                <i data-lucide="alert-triangle" class="w-3 h-3"></i> Đang được kiểm tra kỹ hơn
+                            </p>
                         </div>
 
                         {{-- Star rating --}}
@@ -228,11 +239,18 @@
                                 x-text="doc.type"></span>
                         </div>
                         <p class="text-xs text-slate-500 mt-0.5" x-text="`${doc.author} · ${doc.category}`"></p>
-                        <div x-show="activeTab === 'my'" class="mt-1">
+                        <div x-show="activeTab === 'my'" class="mt-1 space-y-1">
                             <span class="text-xs font-semibold px-2 py-1 rounded-full"
                                 :class="getStatusClass(doc.status)"
                                 x-text="statusText(doc.status)">
                             </span>
+                            <p x-show="doc.status === 'rejected' && doc.rejection_reason"
+                                class="text-[11px] text-rose-500 italic"
+                                x-text="'Lý do: ' + doc.rejection_reason"></p>
+                            <p x-show="doc.status === 'pending' && doc.scan_status === 'flagged'"
+                                class="text-[11px] text-amber-600 flex items-center gap-1">
+                                <i data-lucide="alert-triangle" class="w-3 h-3"></i> Đang được kiểm tra kỹ hơn
+                            </p>
                         </div>
                         <div class="flex items-center gap-3 mt-1.5">
                             <div class="flex gap-0.5">
@@ -351,7 +369,7 @@
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-slate-700 mb-1.5">Tác giả</label>
-                        <input type="text" x-model="uploadForm.author" placeholder="Tên tác giả"
+                        <input type="text" x-model="uploadForm.author" readonly disabled placeholder="Tên tác giả"
                             class="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
                     </div>
                 </div>
@@ -461,7 +479,22 @@
                         </template>
                     </div>
                 </div>
+                {{-- MỚI: Trạng thái duyệt / lý do từ chối — chỉ hiện khi xem tài liệu của chính mình --}}
+                <div x-show="selectedDoc?.status === 'rejected' && selectedDoc?.rejection_reason"
+                    class="p-4 bg-rose-50 border border-rose-100 rounded-2xl">
+                    <p class="text-xs font-bold text-rose-600 mb-1 flex items-center gap-1.5">
+                        <i data-lucide="x-circle" class="w-3.5 h-3.5"></i> Tài liệu bị từ chối
+                    </p>
+                    <p class="text-sm text-rose-700" x-text="selectedDoc?.rejection_reason"></p>
+                </div>
 
+                <div x-show="selectedDoc?.status === 'pending' && selectedDoc?.scan_status === 'flagged'"
+                    class="p-4 bg-amber-50 border border-amber-100 rounded-2xl">
+                    <p class="text-xs font-bold text-amber-700 mb-1 flex items-center gap-1.5">
+                        <i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i> Đang được kiểm tra kỹ hơn
+                    </p>
+                    <p class="text-sm text-amber-700">Tài liệu của bạn cần thêm thời gian xét duyệt do hệ thống phát hiện vài điểm cần admin xem lại thủ công.</p>
+                </div>
                 {{-- RATING SECTION --}}
                 <div class="border-t border-slate-100 pt-6">
                     <h3 class="font-bold text-slate-900 mb-4 text-sm">Đánh giá tài liệu</h3>
@@ -590,7 +623,8 @@
         'tags'        => $doc->tags->pluck('name') ?? [],
         'types'       => $doc->types->pluck('name') ?? [],
         'status'      => $doc->status,
-        // ── MỚI: map reviewList từ DB ──────────────────────────────────────
+        'rejection_reason' => $doc->rejection_reason ?? null,
+        'scan_status'       => $doc->scan_status ?? null, // passed | flagged | failed
         'reviewList'  => $doc->relationLoaded('reviews')
             ? $doc->reviews->map(fn($r) => [
                 'id'      => $r->id,
@@ -615,6 +649,7 @@
 <script>
 function documentLibrary() {
     const library = {!! $libraryJson !!};
+    const currentUserName = @json(auth()->user()->name ?? '');
     return {
         // State
         viewMode: 'grid',
@@ -634,7 +669,7 @@ function documentLibrary() {
         uploading: false,
         uploadProgress: 0,
         uploadFile: null,
-        uploadForm: { title: '', category: '', author: '', description: '' },
+        uploadForm: { title: '', category: '', author: currentUserName, description: '' },
         toast: { show: false, message: '', type: 'success' },
 
         tabs: [
@@ -702,19 +737,21 @@ function documentLibrary() {
         },
 
         statusText(status) {
-        const map = {
-            'approved': 'Đã duyệt',
-            'reject': 'Từ chối',
-            'pending': 'Chờ xét duyệt'
-        };
-        return map[status] || 'Không xác định';
+                const map = {
+                'approved': 'Đã duyệt',
+                'rejected': 'Từ chối',      // FIX: đổi từ 'reject' -> 'rejected'
+                'pending':  'Chờ xét duyệt',
+                'hidden':   'Đã ẩn (chỉ admin/bạn thấy)', // MỚI
+            };
+            return map[status] || 'Không xác định';
         },
 
         getStatusClass(status) {
             const classes = {
                 'approved': 'bg-emerald-100 text-emerald-800',
-                'reject': 'bg-rose-100 text-rose-800',
-                'pending': 'bg-yellow-100 text-yellow-800'
+                'rejected': 'bg-rose-100 text-rose-800',   // FIX: đổi từ 'reject' -> 'rejected'
+                'pending':  'bg-yellow-100 text-yellow-800',
+                'hidden':   'bg-slate-200 text-slate-600', // MỚI
             };
             return classes[status] || 'bg-gray-100 text-gray-800';
         },
@@ -974,7 +1011,7 @@ function documentLibrary() {
 
                 this.uploadProgress = 0;
                 this.uploadFile = null;
-                this.uploadForm = { title: '', category: '', author: '', description: '' };
+                this.uploadForm = { title: '', category: '', author: currentUserName, description: '' };
                 this.openUpload = false;
                 this.showToast('Upload thành công! Tài liệu đang chờ xét duyệt.', 'success');
             } else {

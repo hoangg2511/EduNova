@@ -212,30 +212,30 @@ class DocumentsController extends Controller
     {
         $type    = $document->types->first()?->name ?? 'Không rõ';
         $subject = $document->tags->first()?->name ?? 'Không rõ';
+        $content = $document->extracted_text 
+            ? mb_substr($document->extracted_text, 0, 4000) // giới hạn token
+            : '(Không trích xuất được nội dung — chỉ dựa vào metadata)';
 
         $system = <<<PROMPT
-Bạn là trợ lý kiểm duyệt tài liệu học tập cho nền tảng giáo dục EduNova.
-Dựa vào thông tin (metadata) của tài liệu được cung cấp, hãy quyết định
-tài liệu nên được PHÊ DUYỆT (approve) hay TỪ CHỐI (reject).
+    Bạn là trợ lý kiểm duyệt tài liệu học tập cho nền tảng giáo dục EduNova.
+    Dựa vào metadata VÀ trích đoạn nội dung thật của tài liệu, hãy quyết định
+    PHÊ DUYỆT (approve) hay TỪ CHỐI (reject).
 
-Từ chối nếu: tiêu đề/mô tả không liên quan đến học tập, mô tả quá sơ sài
-hoặc rỗng, nghi ngờ vi phạm bản quyền, tên file/mô tả chứa nội dung
-không phù hợp, hoặc rõ ràng là spam/quảng cáo.
-Nếu không có dấu hiệu vi phạm rõ ràng, hãy phê duyệt.
+    Từ chối nếu: nội dung không liên quan đến học tập, nghi ngờ vi phạm bản quyền
+    (vd: sách/tài liệu có watermark bản quyền rõ ràng, nội dung sao chép nguyên văn
+    từ nguồn thương mại), nội dung không phù hợp, hoặc rõ ràng là spam/quảng cáo.
 
-CHỈ trả lời bằng đúng 1 object JSON, không thêm bất kỳ chữ nào khác,
-không markdown, không giải thích ngoài JSON. Định dạng bắt buộc:
-{"decision": "approve" hoặc "reject", "reason": "lý do ngắn gọn bằng tiếng Việt (tối đa 200 ký tự)", "confidence": số nguyên 0-100}
-PROMPT;
+    CHỈ trả lời bằng đúng 1 object JSON:
+    {"decision": "approve"|"reject", "reason": "...", "confidence": 0-100}
+    PROMPT;
 
         $prompt = "Tên tài liệu: {$document->name}\n"
-            . "Mô tả: " . ($document->description ?: 'Không có mô tả') . "\n"
-            . "Loại file: {$type}\n"
-            . "Môn học: {$subject}\n"
-            . "Tác giả: " . ($document->uploader?->name ?? 'Ẩn danh');
+            . "Mô tả: " . ($document->description ?: 'Không có') . "\n"
+            . "Loại file: {$type}\nMôn học: {$subject}\n"
+            . "Trạng thái scan bảo mật: {$document->scan_status}\n"
+            . "Trích đoạn nội dung thật:\n{$content}";
 
         $raw = $this->aiAgent->requestOllama($prompt, $system);
-
         return $this->parseAiDecision($raw);
     }
 
@@ -350,8 +350,6 @@ PROMPT;
             'id'               => $d->id,
             'name'             => $d->name,
             'description'      => $d->description,
-            // ✅ Trỏ về route nội bộ thay vì raw path trong DB —
-            //    route này sẽ tự gọi SupabaseService để lấy signed URL thật khi được mở.
             'url'              => $d->url ? route('admin.documents.viewFile', $d->id) : null,
             'author'           => $d->uploader?->name ?? 'Ẩn danh',
             'subject'          => $subject,
@@ -378,6 +376,9 @@ PROMPT;
                 'xlsx' => '#10b981',
                 default => '#64748b',
             },
+            'scan_status'  => $d->scan_status,     // passed | flagged | failed
+            'scan_result'  => $d->scan_result,      // chi tiết từng bước
+            'has_extracted_text' => !empty($d->extracted_text),
         ];
     }
 
