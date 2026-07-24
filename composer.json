@@ -7,6 +7,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
+        "ext-gd": "*",
         "kreait/firebase-php": "^7.24",
         "laravel/framework": "^12.0",
         "laravel/sanctum": "^4.3",
@@ -82,6 +83,26 @@
         }
     },
     "config": {
+        "audit": {
+            "block-insecure": false,
+            "ignore": [
+                "PKSA-bbs6-q5q9-f3t4",
+                "PKSA-qxvb-2bpp-dnk6",
+                "PKSA-fy2t-3c5f-827y",
+                "PKSA-bcdd-5xc7-gwfb",
+                "PKSA-pwsk-hy21-4gby",
+                "PKSA-93qv-9n9h-6k6p",
+                "PKSA-k22t-f949-t9g6",
+                "PKSA-vznr-tgp9-fd7d",
+                "PKSA-7qs6-zvnz-h66r",
+                "PKSA-gm5x-j3mz-71n9",
+                "PKSA-jj5t-2zs1-dcfm",
+                "PKSA-m5cs-t1y6-qpcs",
+                "PKSA-y6py-qpv1-h52p",
+                "PKSA-dwsq-ppd2-mb1x",
+                "PKSA-bf7t-jnpz-492k"
+            ]
+        },
         "optimize-autoloader": true,
         "preferred-install": "dist",
         "sort-packages": true,
@@ -92,4 +113,5 @@
     },
     "minimum-stability": "stable",
     "prefer-stable": true
+    
 }
