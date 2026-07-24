@@ -22,7 +22,7 @@ class BackfillDocumentEmbeddings extends Command
 
         $bar = $this->output->createProgressBar($documents->count());
         foreach ($documents as $doc) {
-            GenerateDocumentEmbeddings::dispatch($doc->id);
+            GenerateDocumentEmbeddings::dispatch($doc->id)->onQueue('embeddings'); // ← thêm .onQueue('embeddings')
             $bar->advance();
             usleep(300_000); // giãn cách nhẹ, tránh rate limit Gemini API khi dispatch hàng loạt
         }

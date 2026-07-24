@@ -198,19 +198,19 @@ class Document extends Model
         $this->dispatchEmbeddingPipeline();
     }
 
-/**
- * Chain: sinh embedding xong mới tính related documents (cần embedding có sẵn).
- * Dùng chung cho mọi trường hợp document chuyển sang 'approved' (approve() lẫn unhide()).
- */
-private function dispatchEmbeddingPipeline(): void
-{
-    DB::afterCommit(function () {
-        \Illuminate\Support\Facades\Bus::chain([
-            new GenerateDocumentEmbeddings($this->id),
-            new GenerateRelatedDocuments($this->id),
-        ])->dispatch();
-    });
-}
+    /**
+     * Chain: sinh embedding xong mới tính related documents (cần embedding có sẵn).
+     * Dùng chung cho mọi trường hợp document chuyển sang 'approved' (approve() lẫn unhide()).
+     */
+    private function dispatchEmbeddingPipeline(): void
+    {
+        DB::afterCommit(function () {
+            \Illuminate\Support\Facades\Bus::chain([
+                new GenerateDocumentEmbeddings($this->id),
+                new GenerateRelatedDocuments($this->id),
+            ])->onQueue('embeddings')->dispatch(); // ← thêm onQueue()
+        });
+    }
 
     public function reject(int $reviewerId, ?string $reason = null): void
     {

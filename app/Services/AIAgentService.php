@@ -36,49 +36,59 @@ class AIAgentService
     }
 
     public function streamOllama(string $prompt, string $systemPrompt, callable $onChunk): void
-{
-    set_time_limit(300);
+    {
+        set_time_limit(300);
+        $startedAt = microtime(true);
+        $pid = getmypid();
 
-    try {
-        $response = Http::timeout(300)
-            ->withOptions(['stream' => true])
-            ->post($this->apiUrl, [
-                'model'  => $this->model,
-                'prompt' => $systemPrompt . "\n\nInput: " . $prompt,
-                'stream' => true,
+        Log::info('streamOllama: BẮT ĐẦU', ['pid' => $pid, 'url' => $this->apiUrl]);
+
+        try {
+            $response = Http::timeout(300)
+                ->withOptions(['stream' => true])
+                ->post($this->apiUrl, [
+                    'model'  => $this->model,
+                    'prompt' => $systemPrompt . "\n\nInput: " . $prompt,
+                    'stream' => true,
+                ]);
+
+            Log::info('Ollama response status: ' . $response->status(), ['pid' => $pid]);
+
+            $stream = $response->getBody();
+            $chunkCount = 0;
+            $buffer = '';
+            while (!$stream->eof()) {
+                $byte = $stream->read(1);
+                if ($byte === "\n") {
+                    $line = trim($buffer);
+                    $buffer = '';
+                    if ($line === '') continue;
+
+                    $json = json_decode($line, true);
+                    if ($json && isset($json['response'])) {
+                        $chunkCount++;
+                        $onChunk($json['response']);
+                        if (ob_get_level()) ob_flush();
+                        flush();
+                    }
+                } else {
+                    $buffer .= $byte;
+                }
+            }
+
+            Log::info('Ollama stream kết thúc', [
+                'pid'         => $pid,
+                'chunk_count' => $chunkCount,
+                'duration_s'  => round(microtime(true) - $startedAt, 1),
             ]);
 
-        Log::info('Ollama response status: ' . $response->status());
-
-        $stream = $response->getBody();
-
-        $chunkCount = 0;
-        $buffer = '';
-        while (!$stream->eof()) {
-            $byte = $stream->read(1);
-            if ($byte === "\n") {
-                $line = trim($buffer);
-                $buffer = '';
-                if ($line === '') continue;
-
-                $json = json_decode($line, true);
-                if ($json && isset($json['response'])) {
-                    $chunkCount++;
-                    $onChunk($json['response']);
-                    if (ob_get_level()) ob_flush();
-                    flush();
-                }
-            } else {
-                $buffer .= $byte;
-            }
+        } catch (\Exception $e) {
+            Log::error("Ollama Streaming Error: " . $e->getMessage(), [
+                'pid'        => $pid,
+                'duration_s' => round(microtime(true) - $startedAt, 1),
+            ]);
         }
-
-        Log::info('Ollama stream kết thúc, tổng số chunk: ' . $chunkCount);
-
-    } catch (\Exception $e) {
-        Log::error("Ollama Streaming Error: " . $e->getMessage());
     }
-}
 
     /**
      * 1. Hàm tạo Flashcard (Trả về mảng JSON)
