@@ -520,7 +520,32 @@ PROMPT
     /** GET /api/chatbot/history */
     public function history(Request $request): JsonResponse
     {
-        $messages = $this->getHistoryFromDb(auth()->id(), 100);
+        $rows = Message::where('user_id', auth()->id())
+            ->where('status', 'active')
+            ->orderBy('created_at', 'asc')
+            ->limit(100)
+            ->get(['role', 'content']);
+
+        $messages = $rows->map(function ($r) {
+            $role      = $r->role === 'ai' ? 'assistant' : $r->role;
+            $content   = $r->content ?? '';
+            $documents = null;
+
+            if (preg_match('/<!--DOCS_JSON:([\s\S]*?)-->/', $content, $m)) {
+                $decoded = json_decode($m[1], true);
+                if (is_array($decoded) && !empty($decoded['documents'])) {
+                    $documents = $decoded['documents'];
+                }
+                $content = $this->stripDocsMarker($content);
+            }
+
+            $msg = ['role' => $role, 'content' => $content];
+            if ($documents) {
+                $msg['documents'] = $documents;
+            }
+            return $msg;
+        })->values()->all();
+
         return response()->json(['success' => true, 'messages' => $messages]);
     }
 
@@ -1230,65 +1255,96 @@ PROMPT
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-// DOCUMENT RECOMMENDATION (RAG)
-// ─────────────────────────────────────────────────────────────────────────
+    // DOCUMENT RECOMMENDATION (RAG)
+    // ─────────────────────────────────────────────────────────────────────────
 
-private function handleDocumentRecommendationStream(int $userId, string $message)
-{
-    Log::info('handleDocumentRecommendationStream: searching', ['user_id' => $userId, 'query' => mb_substr($message, 0, 200)]);
+    private function handleDocumentRecommendationStream(int $userId, string $message)
+    {
+        Log::info('handleDocumentRecommendationStream: searching', ['user_id' => $userId, 'query' => mb_substr($message, 0, 200)]);
 
-    try {
-        $docs = $this->recommendationService->searchByQuery($message, 5);
-    } catch (\Exception $e) {
-        Log::error('handleDocumentRecommendationStream: search failed', ['error' => $e->getMessage()]);
-        $docs = collect();
-    }
-
-    $reply = $this->formatDocumentRecommendationReply($docs);
-
-    // Lưu vào lịch sử chat
-    try {
-        Message::create(['user_id' => $userId, 'role' => 'ai', 'content' => $reply]);
-    } catch (\Exception $e) {
-        Log::warning('Cannot persist recommendation reply: ' . $e->getMessage());
-    }
-
-    return response()->stream(function () use ($reply) {
-        $chunks = str_split($reply, 4);
-        foreach ($chunks as $chunk) {
-            echo $chunk;
-            @ob_flush(); @flush();
-            usleep(8000);
+        try {
+            $docs = $this->recommendationService->searchByQuery($message, 5);
+        } catch (\Exception $e) {
+            Log::error('handleDocumentRecommendationStream: search failed', ['error' => $e->getMessage()]);
+            $docs = collect();
         }
-    }, 200, [
-        'Content-Type'      => 'text/plain; charset=utf-8',
-        'Cache-Control'     => 'no-cache, no-store, must-revalidate',
-        'X-Accel-Buffering' => 'no',
-        'X-Chat-Tag-Status' => 'done', // tìm 1 lần là xong, không cần hỏi lại
-    ]);
-}
 
-    private function formatDocumentRecommendationReply($docs): string
+        [$replyText, $documents] = $this->formatDocumentRecommendationReply($docs);
+
+        $marker = '';
+        if (!empty($documents)) {
+            $marker = "\n<!--DOCS_JSON:" . json_encode(['documents' => $documents], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "-->";
+        }
+        $fullStream = $replyText . $marker;
+
+        // ⚠ FIX: lưu $fullStream (kèm marker) chứ không phải $replyText,
+        // để khi load lại lịch sử vẫn khôi phục được danh sách tài liệu.
+        try {
+            Message::create(['user_id' => $userId, 'role' => 'ai', 'content' => $fullStream]);
+        } catch (\Exception $e) {
+            Log::warning('Cannot persist recommendation reply: ' . $e->getMessage());
+        }
+
+        return response()->stream(function () use ($fullStream) {
+            $chunks = str_split($fullStream, 4);
+            foreach ($chunks as $chunk) {
+                echo $chunk;
+                @ob_flush(); @flush();
+                usleep(8000);
+            }
+        }, 200, [
+            'Content-Type'      => 'text/plain; charset=utf-8',
+            'Cache-Control'     => 'no-cache, no-store, must-revalidate',
+            'X-Accel-Buffering' => 'no',
+            'X-Chat-Tag-Status' => 'done',
+        ]);
+    }
+
+    private function formatDocumentRecommendationReply($docs): array
     {
         if ($docs->isEmpty()) {
-            return "🔍 Mình chưa tìm thấy tài liệu nào phù hợp trong kho. Bạn thử mô tả cụ thể hơn (tên môn học, chủ đề...) nhé.";
+            return ["🔍 Mình chưa tìm thấy tài liệu nào phù hợp trong kho. Bạn thử mô tả cụ thể hơn (tên môn học, chủ đề...) nhé.", []];
         }
 
-        $lines = ["📚 **Mình tìm thấy vài tài liệu có thể phù hợp:**\n"];
+        $reply = "📚 Mình tìm thấy vài tài liệu có thể phù hợp cho bạn:";
 
-        foreach ($docs as $doc) {
+        $iconMap = [
+            'pdf'  => ['icon' => 'file-text',   'color' => '#ef4444'],
+            'docx' => ['icon' => 'file',         'color' => '#3b82f6'],
+            'pptx' => ['icon' => 'presentation', 'color' => '#f59e0b'],
+            'xlsx' => ['icon' => 'table-2',      'color' => '#10b981'],
+        ];
+
+        $documents = $docs->map(function ($doc) use ($iconMap) {
+            $type  = $doc->type ?? null;
+            $style = $iconMap[$type] ?? ['icon' => 'file', 'color' => '#64748b'];
+
             try {
                 $url = route('user.documents.view', $doc->id);
             } catch (\Exception $e) {
                 $url = '/user/documents/' . $doc->id . '/view';
             }
 
-            $desc = $doc->description ? ' — ' . mb_substr($doc->description, 0, 100) : '';
-            $lines[] = "• [{$doc->name}]({$url}){$desc}";
-        }
+            return [
+                'id'          => $doc->id,
+                'name'        => $doc->name,
+                'description' => $doc->description ? mb_substr($doc->description, 0, 100) : null,
+                'type'        => $type,
+                'icon'        => $style['icon'],
+                'color'       => $style['color'],
+                'url'         => $url,
+            ];
+        })->values()->all();
 
-        $lines[] = "\n💡 Nhấn vào tên tài liệu để xem chi tiết.";
-
-        return implode("\n", $lines);
+        return [$reply, $documents];
     }
+    /**
+     * Xoá marker DOCS_JSON khỏi nội dung — dùng khi cần text thuần
+     * (đưa vào context cho AI, hoặc hiển thị content sau khi đã tách documents).
+     */
+    private function stripDocsMarker(string $content): string
+    {
+        return trim(preg_replace('/<!--DOCS_JSON:[\s\S]*?-->/', '', $content));
+    }
+
 }

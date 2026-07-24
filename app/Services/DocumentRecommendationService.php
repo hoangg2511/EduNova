@@ -59,14 +59,18 @@ class DocumentRecommendationService
         $queryVector = $embedder->embed($query);
 
         if (!$queryVector) {
-            // fallback về FULLTEXT nếu Gemini lỗi/rate limit
+            \Illuminate\Support\Facades\Log::warning('DocumentRecommendationService: embed() failed, dùng fulltext fallback', [
+                'query' => $query,
+            ]);
             return $this->fulltextFallback($query, $limit);
         }
 
-        // So sánh với vector trung bình từng tài liệu (cache trong bảng riêng nếu cần tối ưu thêm)
         $documents = Document::where('status', 'approved')
-            ->with('embeddings') // hasMany DocumentEmbedding
+            ->with('embeddings')
             ->get();
+
+        // ⚠ Ngưỡng nâng từ 0.5 → 0.65, và log điểm số để bạn tinh chỉnh dựa trên dữ liệu thật
+        $threshold = 0.65;
 
         $scored = $documents->map(function ($doc) use ($embedder, $queryVector) {
             if ($doc->embeddings->isEmpty()) {
@@ -74,7 +78,6 @@ class DocumentRecommendationService
                 return $doc;
             }
 
-            // Lấy điểm cao nhất trong các chunk (tài liệu dài vẫn được tìm đúng đoạn liên quan)
             $best = $doc->embeddings->map(
                 fn ($e) => $embedder->cosineSimilarity($queryVector, $e->embedding)
             )->max();
@@ -82,18 +85,60 @@ class DocumentRecommendationService
             $doc->relevance = $best;
             return $doc;
         })
-        ->filter(fn ($d) => $d->relevance > 0.5)
+        ->filter(fn ($d) => $d->relevance > $threshold)
         ->sortByDesc('relevance')
         ->take($limit);
+
+        \Illuminate\Support\Facades\Log::info('DocumentRecommendationService: search scores', [
+            'query'     => $query,
+            'threshold' => $threshold,
+            'top_scores'=> $scored->map(fn ($d) => ['id' => $d->id, 'name' => $d->name, 'score' => round($d->relevance, 4)])->values()->all(),
+        ]);
 
         return $scored;
     }
 
     private function fulltextFallback(string $query, int $limit): Collection
     {
-        return Document::where('status', 'approved')
-            ->whereRaw("MATCH(name, description) AGAINST(? IN NATURAL LANGUAGE MODE)", [$query])
+        // Tách query thành các từ có nghĩa (bỏ từ quá ngắn/stop-word phổ biến tiếng Việt)
+        $stopWords = ['tài', 'liệu', 'về', 'của', 'và', 'là', 'cho', 'với', 'các', 'một', 'những'];
+        $words = collect(preg_split('/\s+/u', trim($query)))
+            ->map(fn ($w) => trim($w))
+            ->filter(fn ($w) => mb_strlen($w) >= 2 && !in_array(mb_strtolower($w), $stopWords))
+            ->values();
+
+        if ($words->isEmpty()) {
+            return collect();
+        }
+
+        // Boolean mode: yêu cầu match CÀNG NHIỀU từ khóa CÀNG TỐT, không chỉ 1 từ ngẫu nhiên là đủ.
+        // Dùng '+' để bắt buộc các từ khóa chính (>=4 ký tự, tránh bị FULLTEXT bỏ qua) phải xuất hiện.
+        $required = $words->filter(fn ($w) => mb_strlen($w) >= 4);
+        $boolQuery = $required->isNotEmpty()
+            ? $required->map(fn ($w) => '+' . $w . '*')->implode(' ')
+            : $words->map(fn ($w) => $w . '*')->implode(' ');
+
+        $results = Document::where('status', 'approved')
+            ->whereRaw(
+                "MATCH(name, description) AGAINST(? IN BOOLEAN MODE)",
+                [$boolQuery]
+            )
             ->limit($limit)
             ->get();
+
+        // Nếu boolean mode với '+' không ra kết quả (quá khắt khe), nới lỏng về natural language
+        // nhưng vẫn yêu cầu tên tài liệu chứa ít nhất 1 từ khóa chính — tránh trả bừa.
+        if ($results->isEmpty() && $required->isNotEmpty()) {
+            $results = Document::where('status', 'approved')
+                ->where(function ($q) use ($required) {
+                    foreach ($required as $word) {
+                        $q->orWhere('name', 'like', "%{$word}%");
+                    }
+                })
+                ->limit($limit)
+                ->get();
+        }
+
+        return $results;
     }
 }

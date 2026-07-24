@@ -107,6 +107,28 @@
                             <div class="bg-white border border-slate-200 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
                                 <p class="text-sm text-slate-700 leading-relaxed" x-html="formatMsg(msg.content)"></p>
                             </div>
+
+                            {{-- Card tài liệu gợi ý — chỉ hiện khi msg có documents --}}
+                            <template x-if="msg.documents && msg.documents.length">
+                                <div class="mt-2 space-y-1.5">
+                                    <template x-for="doc in msg.documents" :key="doc.id">
+                                        <a :href="doc.url" target="_blank" rel="noopener"
+                                            class="flex items-center gap-3 p-2.5 bg-white border border-slate-200 rounded-xl hover:border-slate-400 hover:shadow-sm transition-all">
+                                            <div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+                                                :style="`background:${doc.color}15`">
+                                                <i :data-lucide="doc.icon" class="w-4 h-4" :style="`color:${doc.color}`"></i>
+                                            </div>
+                                            <div class="min-w-0 flex-1">
+                                                <p class="text-xs font-bold text-slate-800 truncate" x-text="doc.name"></p>
+                                                <p class="text-[11px] text-slate-400 truncate"
+                                                    x-text="doc.description || (doc.type ? doc.type.toUpperCase() : '')"></p>
+                                            </div>
+                                            <i data-lucide="external-link" class="w-3.5 h-3.5 text-slate-300 shrink-0"></i>
+                                        </a>
+                                    </template>
+                                </div>
+                            </template>
+
                             <p class="text-[10px] text-slate-400 mt-1 ml-1">EduNova AI</p>
                         </div>
                     </div>
@@ -269,8 +291,12 @@
                         .then(r => r.json())
                         .then(data => {
                             if (data && data.success && Array.isArray(data.messages)) {
-                                // messages from API already use role 'assistant' or 'user'
-                                this.messages = data.messages.map(m => ({ role: m.role, content: m.content }));
+                                this.messages = data.messages.map(m => ({
+                                    role: m.role,
+                                    content: m.content,
+                                    ...(Array.isArray(m.documents) && m.documents.length ? { documents: m.documents } : {}),
+                                }));    
+
                                 this.$nextTick(() => { this.scrollBottom(); lucide.createIcons(); });
                             }
                         }).catch(err => {
@@ -485,7 +511,21 @@
                             this.$nextTick(() => this.scrollBottom());
                         }
                     }
-
+                    const docsMatch = fullReply.match(/<!--DOCS_JSON:([\s\S]*?)-->/);
+                    if (docsMatch) {
+                        try {
+                            const parsed = JSON.parse(docsMatch[1]);
+                            if (Array.isArray(parsed.documents) && parsed.documents.length) {
+                                this.messages[assistantIndex].documents = parsed.documents;
+                            }
+                        } catch (e) {
+                            console.warn('Không parse được DOCS_JSON:', e);
+                        }
+                        // Xoá marker khỏi nội dung hiển thị
+                        const cleaned = fullReply.replace(docsMatch[0], '').trim();
+                        this.messages[assistantIndex].content = cleaned;
+                        fullReply = cleaned;
+                    }
                     if (!activeTag) {
                         const used = Math.ceil((text.length + fullReply.length) / 4);
                         this.tokenLimit = Math.max(0, this.tokenLimit - used);
